@@ -38,7 +38,7 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         smoothed error covariances for sampling
     Notes:
     See README and/or [1]_ for the difference between s and s_hat.
-    [1]_ Frühwirth-Schnatter, Sylvia (1992) Data Augmentation and Dynamic Linear Models.
+    [1]_ Fruhwirth-Schnatter, Sylvia (1992) Data Augmentation and Dynamic Linear Models.
     URL: https://epub.wu.ac.at/id/eprint/392
     """
     assert y.shape[1] == f.shape[0]

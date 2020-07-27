@@ -39,7 +39,7 @@ fig, ax = plt.subplots()
 ax.plot(x)
 ax.plot(y)
 fig.show()
-
+print(l)
 
 def test_neuralvar(use_lapack=True, lambda2=0.1, rel_tol=0.0001):
     model = NeuraLVAR(p, use_lapack=use_lapack)
