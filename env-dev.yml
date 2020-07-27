@@ -1,0 +1,10 @@
+# Environment for development
+# usage: $ conda env create --file=env-dev.yml
+name: testnlgc
+channels:
+- defaults
+- conda-forge
+dependencies:
+- python >= 3.8
+- eelbrain >= 0.30
+- mne >= 0.21

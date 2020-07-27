@@ -1,14 +1,9 @@
 import numpy as np
 from scipy import linalg
 from matplotlib import pyplot as plt
-from e_step import sskf
-from m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
-from opt import NeuraLVAR, NeuraLVARCV
-
-
-import ipdb
-import cProfile, pstats, io
-
+from nlgc.opt.e_step import sskf
+from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
+from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 
 # np.random.seed(5)
 

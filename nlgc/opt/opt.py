@@ -5,10 +5,10 @@ from multiprocessing import shared_memory, current_process
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn import preprocessing
-from sklearn.model_selection import KFold, TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit
 
-from e_step import sskf, align_cast
-from m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll
+from nlgc.opt.e_step import sskf, align_cast
+from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
