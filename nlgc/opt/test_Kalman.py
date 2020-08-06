@@ -54,8 +54,14 @@ def test_neuralvar(use_lapack=True, lambda2=0.1, rel_tol=0.0001):
     print(q_upper)
     print(lls)
     print(model.compute_ll(y_test.T, (a_, f, q_upper, r)))
+    model = NeuraLVAR(p, use_lapack=use_lapack)
     model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1*q, rel_tol=rel_tol)
-    print(model.compute_ll(y_test.T, None))
+    print(f"ll:{model.compute_ll(y_test.T, None)}")
+    model = NeuraLVAR(p, use_lapack=use_lapack)
+    model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
+              rel_tol=rel_tol, restriction='1->2')
+    print(f"ll:{model.compute_ll(y_test.T, None)}")
+    model = NeuraLVAR(p, use_lapack=use_lapack)
     model.fit(y.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
               rel_tol=rel_tol)
     print(model._parameters)
@@ -137,6 +143,7 @@ def inspect_results(use_lapack=True, lambda2=0.05):
 
 
 if __name__ == '__main__':
+    test_neuralvar()
     test_neuralvarcv(rel_tol=0.00001)
     # import timeit
     # print("use_lapack=False")

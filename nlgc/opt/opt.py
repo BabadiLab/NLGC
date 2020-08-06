@@ -1,6 +1,8 @@
 import logging
+import re
 import os
 from multiprocessing import shared_memory, current_process
+from itertools import product
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -32,6 +34,8 @@ class NeuraLVAR:
     _parameters = None
     _lls = None
     lambda_ = None
+    _zeroed_index = None
+    restriction = None
 
     def __init__(self, order, copy=True, standardize=False, normalize=False, use_lapack=True):
         if standardize is not False and normalize is not False:
@@ -76,9 +80,30 @@ class NeuraLVAR:
         r : ndarray of shape (n_channels, n_channels)
         xs : tuple of two ndarrays of shape (n_samples, n_sources)
             Used for mostly reusing the allocated memories
+
+        Notes
+        -----
+        To learn restricted model for i --> j, ([j] * p, list(range(i, m*p, m))) are set
+        as zeroed index.
         """
         y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack = \
             self._prep_for_sskf(y, a_init, f, q_init, r, xs)
+
+        if self.restriction is not None:
+            i_s, j_s = re.split(r'->', self.restriction)
+            i_s = [int(i) for i in re.split(r',', i_s)]
+            j_s = [int(j) for j in re.split(r',', j_s)]
+            # check for i, j's proper range
+            if any(i >= m for i in i_s) or any(j >= m for j in j_s):
+                raise ValueError(f"restriction {self.restriction}: i or j needs to be in range of neural sources, {m}")
+            x_index = []
+            y_index = []
+            for i, j in product(i_s, j_s):
+                x_index.extend([j] * p)
+                y_index.extend(list(range(i, m * p, m)))
+            zeroed_index = (x_index, y_index)
+        else:
+            zeroed_index = None
 
         lls = []
         for i in range(max_iter):
@@ -97,11 +122,12 @@ class NeuraLVAR:
             s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
 
             for _ in range(max_cyclic_iter):
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=1000, tol=0.01)
+                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=1000, tol=0.01,
+                                               zeroed_index=zeroed_index)
                 q_upper = solve_for_q(q_upper, s3, s1, a_upper, lambda2=lambda2)
 
         a = self._unravel_a(a_upper)
-        return a, q_upper, lls, f, r, xs
+        return a, q_upper, lls, f, r, zeroed_index, xs
 
     def compute_ll(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -126,7 +152,8 @@ class NeuraLVAR:
         ll = compute_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
         return ll
 
-    def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001):
+    def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
+            restriction=None):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         Parameters
@@ -140,11 +167,22 @@ class NeuraLVAR:
         a_init : ndarray of shape (order, n_sources, n_sources), default=None
         q_init : ndarray of shape (n_sources, n_sources), default=None
         rel_tol : float, default=0.0001
+        restriction : regular expression like 'i->j' or 'i1,i2->j1,j2', default = None
+            i and j should be integers.
+
+        Notes
+        -----
+        To learn restricted model for i --> j, pass ([j] * p, list(range(i, m*p, m)))
+        as zeroed index.
         """
-        a, q_upper, lls, f, r, _ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
-                                             max_cyclic_iter=max_cyclic_iter,
-                                             a_init=a_init, q_init=q_init, rel_tol=rel_tol)
+        if (restriction is None or re.search('->', restriction)) is False:
+            raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
+        self.restriction = restriction
+        a, q_upper, lls, f, r, zeroed_index, _ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
+                                                           max_cyclic_iter=max_cyclic_iter, a_init=a_init,
+                                                           q_init=q_init, rel_tol=rel_tol)
         self._parameters = (a, f, q_upper, r)
+        self._zeroed_index = zeroed_index
         self._lls = lls
         self.lambda_ = lambda2
         return self
@@ -314,7 +352,7 @@ class NeuraLVARCV(NeuraLVAR):
         return val
 
     def fit(self, y, f, r, lambda_range=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None,
-            rel_tol=0.0001):
+            rel_tol=0.0001, restriction=None):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         y : ndarray of shape (n_channels, n_samples)
@@ -326,7 +364,13 @@ class NeuraLVARCV(NeuraLVAR):
         a_init : ndarray of shape (order, n_sources, n_sources), default=None
         q_init : ndarray of shape (n_sources, n_sources), default=None
         rel_tol : float, default=0.0001
+        restriction : regular expression like 'i->j', default = None
+            i and j should be integers.
         """
+        if (restriction is None or re.search('->', restriction)) is False:
+            raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
+        self.restriction = restriction
+
         y, f = align_cast((y, f), self._use_lapack)  # to make y, f contiguous in 'F'
 
         if lambda_range is None or lambda_range == 'auto':
@@ -363,10 +407,11 @@ class NeuraLVARCV(NeuraLVAR):
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         best_lambda = lambda_range[index]
 
-        a, q_upper, lls, f, r, _ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
+        a, q_upper, lls, f, r, zeroed_index, _ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
                                              max_cyclic_iter=max_cyclic_iter,
                                              a_init=a_init, q_init=q_init, rel_tol=rel_tol)
         self._parameters = (a, f, q_upper, r)
+        self._zeroed_index = zeroed_index
         self._lls = lls
         self.lambda_ = best_lambda
 
