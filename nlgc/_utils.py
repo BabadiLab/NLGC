@@ -47,7 +47,9 @@ def bias(q, a, x_, idx_src):
     ldotdot[0, 1:] = ldotdot[1:, 0] .T
     ldotdot[1:, 1:] = -1 / qd[idx_src]*(cx.T@cx)
 
-    return ldot.T@np.linalg.inv(ldotdot)@ldot
+    # return ldot.T@np.linalg.inv(ldotdot)@ldot
+    return ldot.T@np.linalg.solve(ldotdot, ldot)
+
 
 
 def test_bias():

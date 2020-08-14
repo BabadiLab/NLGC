@@ -8,7 +8,7 @@ from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 # np.random.seed(5)
 
 # n, m, p, k = 155, 2*68, 6, 100
-n, m, p, k = 4, 3, 2, 4
+n, m, p, k = 3, 3, 2, 4
 t = 1000
 q = np.eye(m)
 r = np.eye(n)
@@ -76,8 +76,8 @@ def test_neuralvarcv(use_lapack=True, lambda2=0.05, rel_tol=0.0001):
     print('\n')
     print(model._parameters[0])
     print('\n')
-    print(model._parameters[2])
-    print(model.lambda_)
+    # print(model._parameters[2])
+    # print(model.lambda_)
 
 
 def test_em(use_lapack=True, lambda2=0.05):
@@ -143,7 +143,7 @@ def inspect_results(use_lapack=True, lambda2=0.05):
 
 
 if __name__ == '__main__':
-    test_neuralvar()
+    # test_neuralvar()
     test_neuralvarcv(rel_tol=0.00001)
     # import timeit
     # print("use_lapack=False")

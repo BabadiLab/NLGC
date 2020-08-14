@@ -80,6 +80,7 @@ class NeuraLVAR:
         r : ndarray of shape (n_channels, n_channels)
         xs : tuple of two ndarrays of shape (n_samples, n_sources)
             Used for mostly reusing the allocated memories
+        x_ : ndarray of shape (n_samples, n_sources)
 
         Notes
         -----
@@ -127,7 +128,7 @@ class NeuraLVAR:
                 q_upper = solve_for_q(q_upper, s3, s1, a_upper, lambda2=lambda2)
 
         a = self._unravel_a(a_upper)
-        return a, q_upper, lls, f, r, zeroed_index, xs
+        return a, q_upper, lls, f, r, zeroed_index, xs, x_
 
     def compute_ll(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -178,10 +179,11 @@ class NeuraLVAR:
         if (restriction is None or re.search('->', restriction)) is False:
             raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
         self.restriction = restriction
-        a, q_upper, lls, f, r, zeroed_index, _ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
+        a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
                                                            max_cyclic_iter=max_cyclic_iter, a_init=a_init,
                                                            q_init=q_init, rel_tol=rel_tol)
-        self._parameters = (a, f, q_upper, r)
+
+        self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
         self.lambda_ = lambda2
@@ -340,7 +342,7 @@ class NeuraLVARCV(NeuraLVAR):
         val = 0
         for i, lambda2 in enumerate(lambda_range):
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
-            a_, q_upper, lls, *rest, xs = \
+            a_, q_upper, lls, *rest, xs, _ = \
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs)
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
@@ -407,10 +409,10 @@ class NeuraLVARCV(NeuraLVAR):
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         best_lambda = lambda_range[index]
 
-        a, q_upper, lls, f, r, zeroed_index, _ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
+        a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
                                              max_cyclic_iter=max_cyclic_iter,
                                              a_init=a_init, q_init=q_init, rel_tol=rel_tol)
-        self._parameters = (a, f, q_upper, r)
+        self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
         self.lambda_ = best_lambda
