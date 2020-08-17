@@ -33,6 +33,7 @@ class NeuraLVAR:
     _dims = None
     _parameters = None
     _lls = None
+    lls = None
     lambda_ = None
     _zeroed_index = None
     restriction = None
@@ -147,7 +148,7 @@ class NeuraLVAR:
         """
         if args is None:
             args = self._parameters
-        a, f, q, r = args
+        a, f, q, r, *rest = args
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         ll = compute_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
@@ -186,6 +187,7 @@ class NeuraLVAR:
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
+        self.ll = lls[-1]
         self.lambda_ = lambda2
         return self
 
@@ -415,6 +417,7 @@ class NeuraLVARCV(NeuraLVAR):
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
+        self.ll = lls[-1]
         self.lambda_ = best_lambda
 
 
