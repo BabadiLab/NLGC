@@ -55,7 +55,7 @@ class NeuraLVAR:
         self._use_lapack = use_lapack
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
-             rel_tol=0.0001, xs=None):
+             rel_tol=0.0001, xs=None, alpha=0.5, beta=0.1):
         """Internal function that fits the model from given data
 
         Parameters
@@ -70,6 +70,8 @@ class NeuraLVAR:
         q_init : ndarray of shape (n_sources, n_sources), default=None
         rel_tol : float, default=0.0001
         xs : tuple of two ndarrays of shape (n_samples, n_sources), default=None
+        alpha: float, default = 0.5
+        beta : float, default = 1
 
         Returns
         -------
@@ -87,6 +89,8 @@ class NeuraLVAR:
         -----
         To learn restricted model for i --> j, ([j] * p, list(range(i, m*p, m))) are set
         as zeroed index.
+        non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+        This equivalent to alpha*n - 2 additional observations that sum to beta*n.
         """
         y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack = \
             self._prep_for_sskf(y, a_init, f, q_init, r, xs)
@@ -126,7 +130,7 @@ class NeuraLVAR:
             for _ in range(max_cyclic_iter):
                 a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=1000, tol=0.01,
                                                zeroed_index=zeroed_index)
-                q_upper = solve_for_q(q_upper, s3, s1, a_upper, lambda2=lambda2)
+                q_upper = solve_for_q(q_upper, s3, s1, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
 
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_
@@ -155,7 +159,7 @@ class NeuraLVAR:
         return ll
 
     def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
-            restriction=None):
+            restriction=None, alpha=0.5, beta=0.1):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         Parameters
@@ -171,18 +175,22 @@ class NeuraLVAR:
         rel_tol : float, default=0.0001
         restriction : regular expression like 'i->j' or 'i1,i2->j1,j2', default = None
             i and j should be integers.
+        alpha: float, default = 0.5
+        beta : float, default = 1
 
         Notes
         -----
         To learn restricted model for i --> j, pass ([j] * p, list(range(i, m*p, m)))
         as zeroed index.
+        non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+        This equivalent to alpha*n - 2 additional observations that sum to beta*n.
         """
         if (restriction is None or re.search('->', restriction)) is False:
             raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
         self.restriction = restriction
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
                                                            max_cyclic_iter=max_cyclic_iter, a_init=a_init,
-                                                           q_init=q_init, rel_tol=rel_tol)
+                                                           q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
 
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
@@ -302,7 +310,7 @@ class NeuraLVARCV(NeuraLVAR):
         NeuraLVAR.__init__(self, order, copy, standardize, normalize, use_lapack)
 
     def _cvfit(self, split, info_y, info_f, info_r, info_cv, splits, lambda_range, max_iter=100, max_cyclic_iter=2,
-               a_init=None, q_init=None, rel_tol=0.0001):
+               a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):
         """Utility function to be used by self.fit()
 
         Parameters
@@ -346,7 +354,7 @@ class NeuraLVARCV(NeuraLVAR):
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
             a_, q_upper, lls, *rest, xs, _ = \
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-                          a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs)
+                          a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             cv[split, i] = cross_ll
             val += cross_ll
@@ -356,7 +364,7 @@ class NeuraLVARCV(NeuraLVAR):
         return val
 
     def fit(self, y, f, r, lambda_range=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None,
-            rel_tol=0.0001, restriction=None):
+            rel_tol=0.0001, restriction=None, alpha=0.5, beta=0.1):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         y : ndarray of shape (n_channels, n_samples)
@@ -370,6 +378,13 @@ class NeuraLVARCV(NeuraLVAR):
         rel_tol : float, default=0.0001
         restriction : regular expression like 'i->j', default = None
             i and j should be integers.
+        alpha: float, default = 0.5
+        beta : float, default = 1
+
+        Notes
+        -----
+        non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+        This equivalent to alpha*n - 2 additional observations that sum to beta*n.
         """
         if (restriction is None or re.search('->', restriction)) is False:
             raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
@@ -395,7 +410,7 @@ class NeuraLVARCV(NeuraLVAR):
         shared_r, info_r, shm_r = create_shared_mem(r)
         shared_cv_mat, info_cv, shm_c = create_shared_mem(cv_mat)
         initargs = (info_y, info_f, info_r, info_cv, cvsplits, lambda_range,
-                    max_iter, max_cyclic_iter, a_init, q_init, rel_tol)
+                    max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
         Parallel(n_jobs=self.n_jobs, )(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
 
@@ -412,8 +427,8 @@ class NeuraLVARCV(NeuraLVAR):
         best_lambda = lambda_range[index]
 
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
-                                             max_cyclic_iter=max_cyclic_iter,
-                                             a_init=a_init, q_init=q_init, rel_tol=rel_tol)
+                                                               max_cyclic_iter=max_cyclic_iter, a_init=a_init,
+                                                               q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta = beta)
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
