@@ -9,7 +9,6 @@ from nlgc._stat import fdr_control
 from nlgc._utils import debiased_dev, mybias, my_debiased_dev
 
 
-    n, m, p = 3, 3, 2
 def compare(i, model_f, model_r, x):
     from matplotlib import pyplot as plt
     fig, ax = plt.subplots()
@@ -21,6 +20,7 @@ def compare(i, model_f, model_r, x):
     return fig
 
 if __name__ == '__main__':
+    n, m, p = 3, 3, 2
     np.random.seed(0)
 
     t = 1000
@@ -72,7 +72,7 @@ if __name__ == '__main__':
 
     # learn the full model
     model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
-    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), **kwargs)
+    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=0.5, beta=0.1, **kwargs)
     a_f = model_f._parameters[0]
     q_f = model_f._parameters[2]
     x_f = model_f._parameters[4]
@@ -94,7 +94,7 @@ if __name__ == '__main__':
         a_init[:] = a_f[:]
         a_init[:, j, i] = 0
         model_r = NeuraLVAR(p, use_lapack=False)
-        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f*1, restriction=link, **kwargs)
+        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f*1, restriction=link, alpha=0.5, beta=0.1, **kwargs)
         print(model_r._ravel_a(model_r._parameters[0]))
 
         a_r = model_r._parameters[0]
