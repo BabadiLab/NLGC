@@ -142,7 +142,7 @@ def solve_for_q(q, s1, s2, a, lambda2, alpha=0.5, beta=0.1):
     Notes
     -----
     non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
-    This equivalent to alpha*n - 2 additional observations that sum to beta*n
+    This equivalent to alpha*n - 2 additional observations that sum to beta*n.
     """
     diag_indices = np.diag_indices_from(q)
     q_ = q[diag_indices]

@@ -1,4 +1,17 @@
-"Deviance calculation"
+"""Deviance calculation
+One comment here:
+1. It will be easier to calculate the bias terms first and then update the deviance difference.
+the workflow should be following:
+1. raw deviance differences, raw_deviance. (store it)
+2. calculate the bias terms for the full model, bias_f. (store it) [note that, we only need to compute m terms,
+                                                                        but currently you are computing m*m times.]
+    You can compute bias_f before computing the reduced models.
+3. calculate the bias terms for the reduced models, bias_r (store it).
+
+Once you finish all the matrices just do, raw_deviance + bias_f - bias_r or so!
+That will ease debugging, streamline the coding flow.
+"""
+
 
 import numpy as np
 from scipy import linalg
@@ -9,7 +22,7 @@ from .opt.e_step import sskf
 
 
 def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
-    """Computes the bias in the deviance
+    """Computes the bias in the deviance (proloy@umd.edu)
 
     Parameters
     ----------
@@ -176,7 +189,7 @@ def debiased_dev(xr_, xf_, ar, af, qr, qf, t, idx_reg, mo=1):
 
 
 def my_debiased_dev(fullmodel, reducedmodel, y, idx_reg, mo=1):
-    """Computes debiased deviance
+    """Computes debiased deviance (proloy@umd.edu)
 
     Parameters
     ----------
