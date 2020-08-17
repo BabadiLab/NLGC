@@ -38,7 +38,7 @@ def calculate_ss(x_bar, s_bar, b, m, p):
 
     s_cross = b.dot(s_bar[:, :m])
     x_ = x_bar[:, :m]
-    n = (x_bar.shape[0] - p + 1)
+    n = (x_bar.shape[0] - p)
 
     # compute the following quantities carefully
     # s1 = x[2:].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
@@ -122,7 +122,7 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=1000, tol=0.01, zeroed_index=Non
     return a, changes
 
 
-def solve_for_q(q, s1, s2, a, lambda2):
+def solve_for_q(q, s1, s2, a, lambda2, alpha=0.5, beta=0.1):
     """One-step sol to learn q, state-noise covariance matrix
 
     Parameters
@@ -132,10 +132,17 @@ def solve_for_q(q, s1, s2, a, lambda2):
     s2 : nndarray of shape (n_sources, n_sources*order)
     a : ndarray of shape (n_sources, n_sources*order)
     lambda2 : float
+    alpha: float, default = 0.5
+    beta : float, default = 1
 
     Returns
     -------
     q : ndarray of shape (n_sources, n_sources)
+
+    Notes
+    -----
+    non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+    This equivalent to alpha*n - 2 additional observations that sum to beta*n
     """
     diag_indices = np.diag_indices_from(q)
     q_ = q[diag_indices]
@@ -152,6 +159,8 @@ def solve_for_q(q, s1, s2, a, lambda2):
     q_ += temp2
     q_ -= temp
     # q_ /= t
+    q_ += beta
+    q_ /= (1 + alpha)
     q[diag_indices] = q_
     return q
 
@@ -179,9 +188,10 @@ def compute_ll(y, x_, s_, s_hat, a, f, q, r, m, n, p):
     -------
     val : float
         the log-likelihood value
+        note that it is not normalized by T.
     """
     x = x_[:, :m]
-    t = (x_.shape[0] - p + 1)
+    t = (x_.shape[0] - p)
 
     diff1 = x[p:] - x_[p - 1:-1].dot(a.T)
     i_m = np.eye(m)
@@ -248,9 +258,9 @@ def test_solve_for_a_and_q(t=1000):
     for _x, __x, x_ in zip(x[1:], x, x_bar):
         x_[:m] = _x
         x_[m:] = __x
-    s1 = x[2:].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p + 1)
+    s1 = x[2:].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p)
+    s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p)
+    s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p)
 
     a_ = np.zeros((m, m * p))
     a_[:] = 0 * np.reshape(np.swapaxes(a, 0, 1), (m, m * p))
