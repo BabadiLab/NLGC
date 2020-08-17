@@ -5,10 +5,11 @@ from nlgc.opt.e_step import sskf
 from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
 from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 from nlgc._utils import debiased_dev
+from nlgc._stat import fdr_control
 
 if __name__ == '__main__':
 
-    n, m, p = 3, 3, 1
+    n, m, p = 3, 3, 2
     t = 1000
 
     r = np.eye(n)
@@ -21,7 +22,7 @@ if __name__ == '__main__':
 
     a[0, 0, 0] = 0.5
     a[0, 0, 1] = -0.6
-    a[0, 1, 1] = 0.9
+    a[1, 1, 1] = 0.9
 
     sn = np.random.standard_normal((m + n) * t)
     u = sn[:m * t]
@@ -47,7 +48,7 @@ if __name__ == '__main__':
     y = x.dot(f.T) + v
 
     # model parameters
-    lambda_range = [1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
+    lambda_range = [1, 0.1, 0.01, 0.001]
 
     max_iter = 100
     max_cyclic_iter = 3
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     D = np.zeros((m, m))
     # learn reduced models
     model_r = NeuraLVAR(p, use_lapack=True)
-    m=1
+
     for i in range(m):
         for j in range(m):
             if i == j:
@@ -74,7 +75,6 @@ if __name__ == '__main__':
             a_init = a_f
             a_init[:, j, i] = 0
             model_r.fit(y.T, f, r, lambda_f, max_iter, max_cyclic_iter, a_init, q_init=q_f, rel_tol=tol, restriction=link)
-            print(model_r._ravel_a(model_r._parameters[0]))
 
             a_r = model_r._parameters[0]
             a_r = np.hstack(a_r)
@@ -83,4 +83,7 @@ if __name__ == '__main__':
             x_r = model_r._parameters[4]
             D[j, i] = debiased_dev(x_r[:, 0: m], x_f[:, 0: m], a_r, np.hstack(a_f), q_r, q_f, t, j, mo=1)
 
+    alpha = 0.05
     print(D)
+    J = fdr_control(D, p, alpha)
+    print(J)

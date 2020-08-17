@@ -36,14 +36,14 @@ def bias(q, a, x_, idx_src):
     # gradient of log - likelihood
     ldot = np.zeros((dtot + 1, 1))
 
-    ldot[0, 0] = 1/qd[idx_src]*(t-p)/2*(1-1/2/np.pi)
+    ldot[0, 0] = -t/qd[idx_src]/2 + 1/(qd[idx_src]**2)/2*np.linalg.norm(xi - cx@ai, ord=2)
     ldot[1:, 0] = 1/qd[idx_src]*cx.T@(xi - cx@ai)
 
     # hessian of log - likelihood
     ldotdot = np.zeros((dtot + 1, dtot + 1))
 
-    ldotdot[0, 0] = -1/(qd[idx_src] ** 2)*(t - p)/ 2*(1 - 1/2/np.pi)
-    ldotdot[1:, 0] = -1 / (qd[idx_src] ** 2)*cx.T@(xi - cx@ai)
+    ldotdot[0, 0] = t/(qd[idx_src]**2)//2 - 1/(qd[idx_src]**3)/2*np.linalg.norm(xi - cx@ai, ord=2)
+    ldotdot[1:, 0] = -1/(qd[idx_src]**2)*cx.T@(xi - cx@ai)
     ldotdot[0, 1:] = ldotdot[1:, 0] .T
     ldotdot[1:, 1:] = -1 / qd[idx_src]*(cx.T@cx)
 
@@ -104,3 +104,8 @@ def test_debiased_dev():
     for idx_reg in range(n):
         dev_bias = debiased_dev(x_, x_, ar, af, qr, qf, t, idx_reg, mo)
         print(dev_bias)
+
+
+
+if __name__ == '__main__':
+    test_bias()
