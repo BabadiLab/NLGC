@@ -158,6 +158,14 @@ class NeuraLVAR:
         ll = compute_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
         return ll
 
+    def compute_bias(self, y):
+        from .._utils import sample_path_bias
+        a, f, q, r, *rest = self._parameters
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        x_, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index)
+        return bias
+
     def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
             restriction=None, alpha=0.5, beta=0.1):
         """Fits the model from given m/eeg data, forward gain and noise covariance
@@ -189,8 +197,8 @@ class NeuraLVAR:
             raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
         self.restriction = restriction
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
-                                                           max_cyclic_iter=max_cyclic_iter, a_init=a_init,
-                                                           q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
+                                                               max_cyclic_iter=max_cyclic_iter, a_init=a_init,
+                                                               q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
 
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
