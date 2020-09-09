@@ -18,7 +18,7 @@ def truncatedsvd(a, n_components=2):
     u, s, vh = linalg.svd(a, full_matrices=False, compute_uv=True,
                           overwrite_a=True, check_finite=True,
                           lapack_driver='gesdd')
-    return u[:, n_components] * s[:n_components]
+    return vh[:n_components] * s[:n_components][:, None]
 
 
 _svd_funcs = {
@@ -53,26 +53,31 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
 
     # extract label eigenmodes
     G = _extract_label_eigenmodes(forward, labels, gain, mode, n_eigenmodes, allow_empty=True)
-    # test if therer are empty columns
-    sel = np.any(G, axis=1)
+    # test if there are empty columns
+    sel = np.any(G, axis=0)
     G = G[:, sel].copy()
     discarded_labels =[]
+    j = 0
     for i, sel_ in enumerate(sel[::n_eigenmodes]):
-        discarded_labels.append(labels.pop(i))
-    logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
-                '\n'.join(map(lambda x: str(x.name), discarded_labels)))
+        if not sel_:
+            discarded_labels.append(labels.pop(i-j))
+            j += 1
+    assert j == len(discarded_labels)
+    if j > 0:
+        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
+                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
-    # run the optimization
-    X, active_set = _nlgc_map_opt(M, G, maxit=maxit, tol=tol, n_eigenmodes=n_eigenmodes)
+    # TODO run the optimization
+    outs  = _nlgc_map_opt(M, G, maxit=maxit, tol=tol, n_eigenmodes=n_eigenmodes)
 
-    # Compute the necessary things, and save as an object
-    out = 0
+    # TODO Compute the necessary things, and save as an object
+    out_obj = 0
 
-    return out
+    return out_obj
 
 
 def _nlgc_map_opt(M, gain, maxit, tol, n_eigenmodes):
-
+    #TODO implement
     raise NotImplementedError
 
 
@@ -81,48 +86,46 @@ def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, al
     "Zero columns corresponds to empty labels"
     from mne.source_space import SourceSpaces
     from mne.utils import (logger, _check_option, _validate_type)
-    from mne.source_estimate import (_volume_labels, _prepare_label_extraction, _BaseSourceEstimate,
+    from mne.source_estimate import (_prepare_label_extraction, _BaseSourceEstimate,
                                      _BaseVolSourceEstimate,_BaseVectorSourceEstimate, SourceEstimate,
                                      MixedSourceEstimate, VolSourceEstimate)
     src = fwd['src']
     _validate_type(src, SourceSpaces)
     _check_option('mode', mode, ['svd', 'svd_flip'] + ['auto'])
+    func = _svd_funcs[mode]
 
-    kind = src.kind
-    if kind in ('surface', 'mixed'):
-        if not isinstance(labels, list):
-            labels = [labels]
-        use_sparse = False
+    if len(src) > 2:
+        if src[0]['type'] != 'surf' or src[1]['type'] != 'surf':
+            raise ValueError('The first 2 source spaces have to be surf type')
+        if any(np.any(s['type'] != 'vol') for s in src[2:]):
+            raise ValueError('source spaces have to be of vol type')
+
+        n_aparc = len(labels)
+        n_aseg = len(src[2:])
+        n_labels = n_aparc + n_aseg
     else:
-        labels = _volume_labels(src, labels, trans, mri_resolution)
-        use_sparse = bool(mri_resolution)
-    n_mode = len(labels)  # how many processed with the given mode
-    n_mean = len(src[2:]) if kind == 'mixed' else 0
-    n_labels = n_mode + n_mean
+        n_labels = len(labels)
 
     # create a dummy stc
+    kind = src.kind
     vertno = [s['vertno'] for s in src]
     nvert = np.array([len(v) for v in vertno])
     if kind == 'surface':
-        stc = SourceEstimate(np.empty(nvert),vertno, 0.0, 0.0, 'dummy', )
+        stc = SourceEstimate(np.empty(nvert.sum()),vertno, 0.0, 0.0, 'dummy', )
     elif kind == 'mixed':
-        stc = MixedSourceEstimate(np.empty(nvert), vertno, 0.0, 0.0, 'dummy', )
+        stc = MixedSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
     else:
-        stc = VolSourceEstimate(np.empty(nvert), vertno, 0.0, 0.0, 'dummy', )
+        stc = VolSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
     stcs = [stc]
 
-    vertno = func = None
-
-    # if vertno is None:
-    #     vertno = copy.deepcopy(stc.vertices)  # avoid keeping a ref
-    #     nvert = np.array([len(v) for v in vertno])
-    #     label_vertidx, src_flip = _prepare_label_extraction(stc, labels, src, mode.replace('svd', 'mean'),
-    #                                                         allow_empty, use_sparse)
-    #     func = _svd_funcs[mode]
-
+    vertno  = None
     for si, stc in enumerate(stcs):
-        _validate_type(stc, _BaseSourceEstimate, 'stcs[%d]' % (si,),
-                       'source estimate')
+        if vertno is None:
+            vertno = copy.deepcopy(stc.vertices)  # avoid keeping a ref
+            nvert = np.array([len(v) for v in vertno])
+            label_vertidx, src_flip = \
+                _prepare_label_extraction(stc, labels, src, mode.replace('svd', 'mean'),
+                                          allow_empty)
         if isinstance(stc, (_BaseVolSourceEstimate,
                             _BaseVectorSourceEstimate)):
             _check_option(
@@ -131,13 +134,6 @@ def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, al
             mode = 'svd' if mode == 'auto' else mode
         else:
             mode = 'svd_flip' if mode == 'auto' else mode
-        if vertno is None:
-            vertno = copy.deepcopy(stc.vertices)  # avoid keeping a ref
-            nvert = np.array([len(v) for v in vertno])
-            label_vertidx, src_flip = \
-                _prepare_label_extraction(stc, labels, src, mode.replace('svd', 'mean'),
-                                          allow_empty, use_sparse)
-            func = _svd_funcs[mode]
 
         logger.info('Extracting time courses for %d labels (mode: %s)'
                     % (n_labels, mode))
@@ -161,13 +157,5 @@ def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, al
                     this_data = data[vertidx]
                 label_eigenmodes[i*n_eigenmodes:(i+1)*n_eigenmodes] = \
                     func(flip, this_data, n_eigenmodes)
-
-        # # extract label time series for the vol src space (only mean supported)
-        # offset = nvert[:-n_mean].sum()  # effectively :2 or :0
-        # for i, nv in enumerate(nvert[2:]):
-        #     if nv != 0:
-        #         v2 = offset + nv
-        #         label_tc[n_mode + i] = np.mean(stc.data[offset:v2], axis=0)
-        #         offset = v2
 
         return label_eigenmodes.T
