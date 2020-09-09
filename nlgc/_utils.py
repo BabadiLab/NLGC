@@ -21,6 +21,68 @@ from .opt.m_step import calculate_ss
 from .opt.e_step import sskf
 
 
+def sample_path_bias(q, a, x_bar, zeroed_index):
+    """Computes the bias in the deviance
+
+    Parameters
+    ----------
+    q:  ndarray of shape (n_sources*mo, n_sources*mo)
+    a:  ndarray of shape (n_sources*mo, n_sources*order*mo)
+    x_bar:  ndarray of shape (t, n_sources*mo)
+    idx_src: source index
+
+    Returns
+    -------
+    bias
+
+    """
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm  # what's this??
+
+    # ldot = np.zeros((dtot, 1))
+    # ldotdot = np.zeros((dtot, dtot))
+    bias = 0
+    qd = np.diag(q)
+    cx = np.zeros((t - p, dtot))
+
+    for idx_src in range(0, dxm):
+        ai = a[idx_src]  # in python slicing returns 1d array, so transpose is meaningless.
+
+        xi = x_bar[p:, idx_src]   # p:t, -> p:, pythonic usage
+
+        for k in range(p):
+            cx[:, k*dxm:(k+1)*dxm] = x_bar[p-1-k:t-1-k]
+            # for i in range(dxm):
+                # cx[:, i*p + k] = x_bar[p - 1 - k: t - 1 - k, i]
+                # cx[:, i*p + k] = x_bar[p - 1 - k: t - 1 - k, i]
+
+        # gradient of log - likelihood
+
+        # ldot[0, 0] = -t / qd[idx_src] / 2 + 1 / ((qd[idx_src] ** 2) / 2 * np.linalg.norm(xi - cx @ ai, ord=2))
+        ldot = cx.T.dot(xi - cx.dot(ai)) / qd[idx_src]
+        ldotdot = -cx.T.dot(cx) / qd[idx_src]
+
+        if zeroed_index is not None:
+            x_index, y_index = zeroed_index
+            if idx_src in x_index:
+                removed_idx = list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])
+                ldot = np.delete(ldot, removed_idx)
+                ldotdot = np.delete(ldotdot, removed_idx, axis=0)
+                ldotdot = np.delete(ldotdot, removed_idx, axis=1)
+
+                # ldot[list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])] = 0.0
+        # hessian of log - likelihood
+
+        # ldotdot[0, 0] = t / (qd[idx_src] ** 2) / 2 - 1 / ((qd[idx_src] ** 3) / np.linalg.norm(xi - cx @ ai, ord=2))
+        # ldotdot[1:, 0] = -1 / (qd[idx_src] ** 2) * cx.T @ (xi - cx @ ai)
+        # ldotdot[0, 1:] = ldotdot[1:, 0].T
+
+        bias += ldot.dot(np.linalg.solve(ldotdot, ldot))
+        # import ipdb; ipdb.set_trace()
+    return bias
+
+
 def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
     """Computes the bias in the deviance (proloy@umd.edu)
 
@@ -126,25 +188,27 @@ def bias(q, a, x_bar, idx_src):
 
     cx = np.zeros((t-p, dtot))
 
-    for i in range(dxm):
-        for k in range(p):
-            cx[:, i*p + k] = x_bar[p - 1 - k: t - 1 - k, i]
+    # for i in range(dxm):
+    #     for k in range(p):
+    #         cx[:, i*p + k] = x_bar[p - 1 - k: t - 1 - k, i]
+    for k in range(p):
+        cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
 
     qd = np.diag(q)
 
     # gradient of log - likelihood
-    ldot = np.zeros((dtot + 1, 1))
+    ldot = np.zeros((dtot, 1))
 
-    ldot[0, 0] = -t / qd[idx_src] / 2 + 1 / ((qd[idx_src] ** 2) / 2 * np.linalg.norm(xi - cx @ ai, ord=2))
-    ldot[1:, 0] = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
+    # ldot[0, 0] = -t / qd[idx_src] / 2 + 1 / ((qd[idx_src] ** 2) / 2 * np.linalg.norm(xi - cx @ ai, ord=2))
+    ldot = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
 
     # hessian of log - likelihood
-    ldotdot = np.zeros((dtot + 1, dtot + 1))
+    ldotdot = np.zeros((dtot, dtot))
 
-    ldotdot[0, 0] = t / (qd[idx_src] ** 2) / 2 - 1 / ((qd[idx_src] ** 3) / np.linalg.norm(xi - cx @ ai, ord=2))
-    ldotdot[1:, 0] = -1 / (qd[idx_src] ** 2) * cx.T @ (xi - cx @ ai)
-    ldotdot[0, 1:] = ldotdot[1:, 0].T
-    ldotdot[1:, 1:] = -1 / qd[idx_src] * (cx.T @ cx)
+    # ldotdot[0, 0] = t / (qd[idx_src] ** 2) / 2 - 1 / ((qd[idx_src] ** 3) / np.linalg.norm(xi - cx @ ai, ord=2))
+    # ldotdot[1:, 0] = -1 / (qd[idx_src] ** 2) * cx.T @ (xi - cx @ ai)
+    # ldotdot[0, 1:] = ldotdot[1:, 0].T
+    ldotdot = -1 / qd[idx_src] * (cx.T @ cx)
 
     # import ipdb; ipdb.set_trace()
     return ldot.T@np.linalg.solve(ldotdot, ldot)
