@@ -4,7 +4,9 @@ import glob
 from _nlgc import *
 
 ## Change this folder name to "'your_mounted_drive'\behrad\Aging" before running the script
-behrad_root = r"G:\My Drive\behrad\Aging"
+behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
+
+
 
 ## The corresponding files are alraedy uploaded in Drive
 evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))

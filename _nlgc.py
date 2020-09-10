@@ -68,6 +68,8 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
     # TODO run the optimization
+    import ipdb
+    ipdb.set_trace()
     outs  = _nlgc_map_opt(M, G, maxit=maxit, tol=tol, n_eigenmodes=n_eigenmodes)
 
     # TODO Compute the necessary things, and save as an object

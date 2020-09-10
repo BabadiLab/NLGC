@@ -207,6 +207,7 @@ if __name__ == '__main__':
 
     d_raw, bias_r, bias_f, a_f, q_f = gc_extraction(y, f, p, n_eigenmodes)
 
+
     print(d_raw)
 
     # # model parameters
