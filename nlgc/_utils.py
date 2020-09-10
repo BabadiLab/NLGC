@@ -1,16 +1,6 @@
-"""Deviance calculation
-One comment here:
-1. It will be easier to calculate the bias terms first and then update the deviance difference.
-the workflow should be following:
-1. raw deviance differences, raw_deviance. (store it)
-2. calculate the bias terms for the full model, bias_f. (store it) [note that, we only need to compute m terms,
-                                                                        but currently you are computing m*m times.]
-    You can compute bias_f before computing the reduced models.
-3. calculate the bias terms for the reduced models, bias_r (store it).
+# Author: Behrad Soleimani <behrad@umd.edu>
 
-Once you finish all the matrices just do, raw_deviance + bias_f - bias_r or so!
-That will ease debugging, streamline the coding flow.
-"""
+"Deviance calculation"
 
 
 import numpy as np

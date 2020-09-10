@@ -1,3 +1,5 @@
+ # Author: Behrad Soleimani <behrad@umd.edu>
+
 import numpy as np
 import itertools
 from scipy import linalg
@@ -6,18 +8,7 @@ from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
 from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 from nlgc._utils import debiased_dev
 from nlgc._stat import fdr_control
-from nlgc._utils import bias, sample_path_bias, debiased_dev, mybias, my_debiased_dev
 from matplotlib import pyplot as plt
-
-
-def compare(i, model_f, model_r, x):
-    fig, ax = plt.subplots()
-    ax.plot(model_f._parameters[4][:, i], label='full')
-    ax.plot(model_r._parameters[4][:, i], label='reduced')
-    ax.plot(x[:, i], label='true')
-    ax.legend()
-    fig.show()
-    return fig
 
 
 def string_link(reg_idx, emod):
@@ -29,52 +20,91 @@ def string_link(reg_idx, emod):
     return temp
 
 
-class GC:
-    def __init__(self, subject, y, f, r, nx, ny, t, p, emod, d_raw, d, a_f, q_f, lambda_f):
-        self.subject = subject
-        self.y = y
-        self.f = f
-        self.r = r
+def gc_extraction(y, f, p, n_eigenmodes):
 
-        self.nx = nx
-        self.ny = ny
-        self.t = t
-        self.p = p
-        self.emod = emod
-        self.d_raw = d_raw
-        # scalar
-        self.bias_f = bias_f
-        # matrix
-        self.bias_r = bias_r
+    n, m = f.shape
+    nx = m // n_eigenmodes
 
-        self.a_f = a_f
-        self.q_f = q_f
-        self.lambda_f = lambda_f
+    r = np.eye(n)
 
-    def fdr(self, alpha):
-        return fdr_control(self.d, self.p * self.emod, alpha)
+    lambda_range = [1, 0.1, 0.01, 0.001]
 
-    def save_(self, add):
-        pass
+    max_iter = 100
+    max_cyclic_iter = 3
+    tol = 1e-8
+    kwargs = {'max_iter': max_iter,
+              'max_cyclic_iter': max_cyclic_iter,
+              'rel_tol': tol}
 
-    #plot
+    # learn the full model
+    model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
+    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=0.5, beta=0.1, **kwargs)
+    a_f = model_f._parameters[0]
+    q_f = model_f._parameters[2]
+    # x_f = model_f._parameters[4]
+    lambda_f = model_f.lambda_
+    bias_f = model_f.compute_bias(y.T)
+
+    dev_raw = np.zeros((nx, nx))
+    bias_r = np.zeros((nx, nx))
 
 
-if __name__ == '__main__':
-    n, nx, emod, p = 10, 3, 2, 3
+    # learn reduced models
+    a_init = np.empty_like(a_f)
+
+    q_d = np.diag(q_f)
+    q_reg = [sum(q_d[i:i + n_eigenmodes]) for i in range(0, m, n_eigenmodes)]
+    q_reg_sort = np.sort(q_reg)
+    q_reg_sort = q_reg_sort[::-1]
+    idx = np.argsort(q_reg)
+
+    c = 0.9
+    for i in range(nx):
+        if np.sum(q_reg_sort[0:i]) > c * np.sum(q_reg_sort):
+            break
+
+    src_selection = idx[nx - i - 1:nx]
+    # print(src_selection)
+    for i, j in itertools.product(src_selection, repeat=2):
+        if i == j:
+            continue
+
+        target = string_link(i, n_eigenmodes)
+        src = string_link(j, n_eigenmodes)
+
+        link = target + '->' + src
+        print(link)
+        a_init[:] = a_f[:]
+        a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
+        model_r = NeuraLVAR(p, use_lapack=False)
+        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f * 1, restriction=link, alpha=0.5, beta=0.1, **kwargs)
+
+        # a_r = model_r._ravel_a(model_r._parameters[0])
+        # q_r = model_r._parameters[2]
+        # x_r = model_r._parameters[4]
+        bias_r[j, i] = model_r.compute_bias(y.T)
+
+        dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+
+    return dev_raw, bias_r, bias_f, a_f, q_f
+
+
+def simulation_rnd():
+
+    n, nx, n_eigenmodes, p = 10, 3, 1, 3
     np.random.seed(0)
 
-    m = nx * emod
+    m = nx * n_eigenmodes
 
     t = 500
 
-    r = 0.1*np.eye(n)
+    r = np.eye(n)
     q = 0.1 * np.eye(m)
     q[0, 0] = 10
     q[1, 1] = 11
     q[2, 2] = 8
     # q[3, 3] = 9
-    q[4, 4] = 11
+    # q[4, 4] = 11
     # q[5, 5] = 9.5
     # q[6, 6] = 10.3
     # q[7, 7] = 9.4
@@ -88,7 +118,7 @@ if __name__ == '__main__':
 
     a[0, 1, 2] = 0.6
 
-    a[1, 1, 4] = -0.8
+    # a[1, 1, 4] = -0.8
 
     # a[2, 2, 1] = 0.35
 
@@ -139,71 +169,111 @@ if __name__ == '__main__':
 
     y = x.dot(f.T) + v
 
-    # model parameters
-    lambda_range = [1, 0.1, 0.01, 0.001]
-
-    max_iter = 100
-    max_cyclic_iter = 3
-    tol = 1e-8
-    kwargs = {'max_iter': max_iter,
-              'max_cyclic_iter': max_cyclic_iter,
-              'rel_tol': tol}
-
-    # learn the full model
-    model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
-    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=0.5, beta=0.1, **kwargs)
-    a_f = model_f._parameters[0]
-    q_f = model_f._parameters[2]
-    x_f = model_f._parameters[4]
-    lambda_f = model_f.lambda_
-    bias_f = model_f.compute_bias(y.T)
-
-    D = np.zeros((nx, nx))
-    D_raw = np.zeros((nx, nx))
-
-    # learn reduced models
-    a_init = np.empty_like(a_f)
-
-    q_d = np.diag(q_f)
-    q_reg = [sum(q_d[i:i + 2]) for i in range(0, m, 2)]
-    q_reg_sort = np.sort(q_reg)
-    q_reg_sort = q_reg_sort[::-1]
-    idx = np.argsort(q_reg)
-
-    c = 0.9
-    for i in range(nx):
-        if np.sum(q_reg_sort[0:i]) > c*np.sum(q_reg_sort):
-            break
-
-    src_selection = idx[nx-i-1:nx]
-    print(src_selection)
-    for i, j in itertools.product(src_selection, repeat=2):
-        if i == j:
-            continue
-
-        target = string_link(i, emod)
-        src = string_link(j, emod)
-
-        link = target+'->'+src
-        print(link)
-        a_init[:] = a_f[:]
-        a_init[:, j*emod: (j+1)*emod, i*emod: (i+1)*emod] = 0
-        model_r = NeuraLVAR(p, use_lapack=False)
-        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f*1, restriction=link, alpha=0.5, beta=0.1, **kwargs)
-
-        a_r = model_r._ravel_a(model_r._parameters[0])
-        q_r = model_r._parameters[2]
-        x_r = model_r._parameters[4]
-        bias_r = model_r.compute_bias(y.T)
-
-        D_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
-        D[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1]) - (bias_f - bias_r)
+    return y, f, p, n_eigenmodes
 
 
-    alpha = 0.1
-    J = fdr_control(D, p, alpha)
-    plt.imshow(D[0:10, 0:10], vmin=0, vmax=150)
-    plt.colorbar()
-    plt.show()
-    print(D)
+class NLGC:
+    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, dev_raw, bias_f, bias_r, a_f, q_f, lambda_f):
+
+        self.subject = subject
+        self.nx = nx
+        self.ny = ny
+        self.t = t
+        self.p = p
+        self.n_eigenmodes = n_eigenmodes
+        self.dev_raw = dev_raw
+        self.bias_f = bias_f
+        self.bias_r = bias_r
+        self.a_f = a_f
+        self.q_f = q_f
+        self.lambda_f = lambda_f
+
+    def compute_debiased_dev(self):
+        return self.d_raw - bias_f + bias_r
+
+    def fdr(self, alpha):
+        return fdr_control(self.compute_debiased_dev(self), self.p * self.n_eigenmodes, alpha)
+
+    def save_(self, add):
+        pass
+
+    def plot(self, add):
+        pass
+
+
+if __name__ == '__main__':
+
+    y, f, p, n_eigenmodes = simulation_rnd()
+
+    d_raw, bias_r, bias_f, a_f, q_f = gc_extraction(y, f, p, n_eigenmodes)
+
+    print(d_raw)
+
+    # # model parameters
+    # lambda_range = [1, 0.1, 0.01, 0.001]
+    #
+    # max_iter = 100
+    # max_cyclic_iter = 3
+    # tol = 1e-8
+    # kwargs = {'max_iter': max_iter,
+    #           'max_cyclic_iter': max_cyclic_iter,
+    #           'rel_tol': tol}
+    #
+    # # learn the full model
+    # model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
+    # model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=0.5, beta=0.1, **kwargs)
+    # a_f = model_f._parameters[0]
+    # q_f = model_f._parameters[2]
+    # x_f = model_f._parameters[4]
+    # lambda_f = model_f.lambda_
+    # bias_f = model_f.compute_bias(y.T)
+    #
+    # D = np.zeros((nx, nx))
+    # D_raw = np.zeros((nx, nx))
+    #
+    # # learn reduced models
+    # a_init = np.empty_like(a_f)
+    #
+    # q_d = np.diag(q_f)
+    # q_reg = [sum(q_d[i:i + 2]) for i in range(0, m, 2)]
+    # q_reg_sort = np.sort(q_reg)
+    # q_reg_sort = q_reg_sort[::-1]
+    # idx = np.argsort(q_reg)
+    #
+    # c = 0.9
+    # for i in range(nx):
+    #     if np.sum(q_reg_sort[0:i]) > c*np.sum(q_reg_sort):
+    #         break
+    #
+    # src_selection = idx[nx-i-1:nx]
+    # print(src_selection)
+    # for i, j in itertools.product(src_selection, repeat=2):
+    #     if i == j:
+    #         continue
+    #
+    #     target = string_link(i, emod)
+    #     src = string_link(j, emod)
+    #
+    #     link = target+'->'+src
+    #     print(link)
+    #     a_init[:] = a_f[:]
+    #     a_init[:, j*emod: (j+1)*emod, i*emod: (i+1)*emod] = 0
+    #     model_r = NeuraLVAR(p, use_lapack=False)
+    #     model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f*1, restriction=link, alpha=0.5, beta=0.1, **kwargs)
+    #
+    #     a_r = model_r._ravel_a(model_r._parameters[0])
+    #     q_r = model_r._parameters[2]
+    #     x_r = model_r._parameters[4]
+    #     bias_r = model_r.compute_bias(y.T)
+    #
+    #     D_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+    #     D[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1]) - (bias_f - bias_r)
+    #
+    #
+    # alpha = 0.1
+    # J = fdr_control(D, p, alpha)
+    # plt.imshow(D[0:10, 0:10], vmin=0, vmax=150)
+    # plt.colorbar()
+    # plt.show()
+    # print(D)
 

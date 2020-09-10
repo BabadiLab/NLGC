@@ -1,3 +1,5 @@
+# Author: Behrad Soleimani <behrad@umd.edu>
+
 "Statistical tests"
 
 import numpy as np
