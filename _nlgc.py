@@ -50,7 +50,7 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
     # whiten the data
     logger.info('Whitening data matrix.')
     M = np.dot(whitener, M)
-
+    ## copy till here
     # extract label eigenmodes
     G = _extract_label_eigenmodes(forward, labels, gain, mode, n_eigenmodes, allow_empty=True)
     # test if there are empty columns

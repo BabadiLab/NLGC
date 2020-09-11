@@ -15,5 +15,6 @@ er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
 fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
 labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
 
+
 out = nlgc_map(evoked[0], forward, er_cov, labels)
 
