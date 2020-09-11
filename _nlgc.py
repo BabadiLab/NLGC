@@ -52,7 +52,7 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
     M = np.dot(whitener, M)
     ## copy till here
     # extract label eigenmodes
-    G = _extract_label_eigenmodes(forward, labels, gain, mode, n_eigenmodes, allow_empty=True)
+    G = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
     # test if there are empty columns
     sel = np.any(G, axis=0)
     G = G[:, sel].copy()
@@ -83,7 +83,7 @@ def _nlgc_map_opt(M, gain, maxit, tol, n_eigenmodes):
     raise NotImplementedError
 
 
-def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, allow_empty=False,
+def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=2, allow_empty=False,
         trans=None, mri_resolution=True,):
     "Zero columns corresponds to empty labels"
     from mne.source_space import SourceSpaces
@@ -140,7 +140,8 @@ def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, al
         logger.info('Extracting time courses for %d labels (mode: %s)'
                     % (n_labels, mode))
 
-        if data is not None:
+        if data is None:
+            logger.info('Using the raw forward solution')
             data = np.swapaxes(fwd['sol']['data'], 0, 1)  # (n_sources, n_channels)
         data = data.copy()
 
@@ -160,4 +161,4 @@ def _extract_label_eigenmodes(fwd, labels, data, mode='mean', n_eigenmodes=2, al
                 label_eigenmodes[i*n_eigenmodes:(i+1)*n_eigenmodes] = \
                     func(flip, this_data, n_eigenmodes)
 
-        return label_eigenmodes.T
+        return label_eigenmodes.T, label_vertidx, src_flip

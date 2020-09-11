@@ -7,6 +7,7 @@ import ipdb
 from nlgc.core import gc_extraction
 from matplotlib import pyplot as plt
 import pickle
+import logging
 
 
 def _undo_source_weighting(G, source_weighting):
@@ -91,13 +92,13 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
 
     # G = _undo_source_weighting(gain, source_weighting)
     G = gain.copy()
-    label_vertidxs, src_flip = _extract_label_eigenmodes(forward, labels)
+    label_vertidxs, src_flips = _extract_label_eigenmodes(forward, labels)
 
     X = simulate_AR_process()
 
     idx0 = 0
     i0 = label_vertidxs[idx0][:]
-    g0 = G[:, i0].dot(src_flip[idx0])
+    g0 = G[:, i0].dot(src_flips[idx0])
 
     # idx1 = 32
     # i1 = label_vertidxs[idx1][:]
@@ -128,9 +129,7 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
     # save the data
     # pickle.dump(Y, 'sim_data.pickled')
 
-    extracted_G = _extracted_fwd(forward, labels, gain, mode, n_eigenmodes, allow_empty=True)
-
-    ipdb.set_trace()
+    extracted_G, label_vertidx, src_flip = _extracted_fwd(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
 
     return Y, extracted_G
 
@@ -252,8 +251,10 @@ def simulation_test():
 
 
 if __name__ == '__main__':
+    filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
+    logging.basicConfig(filename=filename, level=logging.DEBUG)
 
-    behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
+    behrad_root = r"G:\My Drive\behrad\Aging"
 
     evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
     forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
