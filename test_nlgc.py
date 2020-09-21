@@ -2,6 +2,7 @@ import mne
 import os
 import glob
 from _nlgc import *
+import ipdb
 
 ## Change this folder name to "'your_mounted_drive'\behrad\Aging" before running the script
 behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
@@ -15,6 +16,7 @@ er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
 fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
 labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
 
+ipdb.set_trace()
 
-out = nlgc_map(evoked[0], forward, er_cov, labels)
+out = nlgc_map(evoked[0], forward, er_cov, labels, p=1)
 

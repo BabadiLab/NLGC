@@ -9,7 +9,8 @@ from mne.forward import is_fixed_orient
 from mne.minimum_norm.inverse import _check_reference
 from mne.utils import logger, verbose, warn
 from mne.inverse_sparse.mxne_inverse import _prepare_gain
-
+import ipdb
+from nlgc.core import gc_extraction, NLGC
 
 def truncatedsvd(a, n_components=2):
     if n_components > min(*a.shape):
@@ -33,8 +34,8 @@ def _reapply_source_weighting(X, source_weighting):
     return X
 
 
-def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=10000, tol=1e-6, pca=True,
-        rank=None, mode='svd_flip', n_eigenmodes=2,):
+def nlgc_map(evoked, forward, noise_cov, labels, p, ROIs_names=None, loose=0.0, depth=0.8, maxit=10000, tol=1e-6, pca=True,
+        rank=None, mode='svd_flip', n_eigenmodes=2):
     _check_reference(evoked)
 
     forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
@@ -54,6 +55,8 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
     # extract label eigenmodes
     G = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
     # test if there are empty columns
+    ipdb.set_trace()
+
     sel = np.any(G, axis=0)
     G = G[:, sel].copy()
     discarded_labels =[]
@@ -67,20 +70,30 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
         logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
-    # TODO run the optimization
-    import ipdb
     ipdb.set_trace()
-    outs  = _nlgc_map_opt(M, G, maxit=maxit, tol=tol, n_eigenmodes=n_eigenmodes)
 
-    # TODO Compute the necessary things, and save as an object
-    out_obj = 0
+    ROIs_idx = list()
+
+    if ROIs_names == None:
+        ROIs_idx = list(range(0, len(labels)))
+    else:
+        for k in range(0, len(ROIs_names)):
+            ROIs_idx.append([i for i in len(labels) if ROIs_names[k] in labels[i].name][0])
+
+    out_obj = _nlgc_map_opt(M, G, p, n_eigenmodes=n_eigenmodes, ROIs = ROIs_idx)
 
     return out_obj
 
 
-def _nlgc_map_opt(M, gain, maxit, tol, n_eigenmodes):
-    #TODO implement
-    raise NotImplementedError
+def _nlgc_map_opt(M, gain, p, n_eigenmodes, ROIs):
+    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, _ = gc_extraction(M, gain, p, n_eigenmodes, ROIs=ROIs)
+
+    ny, nnx = gain.shape
+    nx = nnx // n_eigenmodes
+    t, _ = M.shape
+
+    nlgc_obj = NLGC('test', nx, ny, t, p, n_eigenmodes, d_raw, bias_f, bias_r, a_f, q_f, lambda_f)
+    return nlgc_obj
 
 
 def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=2, allow_empty=False,
