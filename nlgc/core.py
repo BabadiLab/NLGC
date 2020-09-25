@@ -10,7 +10,7 @@ from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 from nlgc._utils import debiased_dev
 from nlgc._stat import fdr_control
 from matplotlib import pyplot as plt
-
+from tqdm import tqdm
 
 def string_link(reg_idx, emod):
     temp = f"{list(range(reg_idx*emod, reg_idx*emod + emod))}"
@@ -21,7 +21,7 @@ def string_link(reg_idx, emod):
     return temp
 
 
-def gc_extraction(y, f, p, n_eigenmodes, alpha=0.5, beta=0.1):
+def gc_extraction(y, f, p, n_eigenmodes, ROIs = None, beta=0.1):
 
     n, m = f.shape
     nx = m // n_eigenmodes
@@ -30,17 +30,19 @@ def gc_extraction(y, f, p, n_eigenmodes, alpha=0.5, beta=0.1):
 
     lambda_range = [1, 0.1, 0.01, 0.001]
 
-    max_iter = 200
+    max_iter = 50
     max_cyclic_iter = 5
-    tol = 1e-10
+    tol = 1e-8
     kwargs = {'max_iter': max_iter,
               'max_cyclic_iter': max_cyclic_iter,
               'rel_tol': tol}
 
     # learn the full model
     model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
+
+    alpha = 0.5
+
     model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=alpha, beta=beta, **kwargs)
-    ipdb.set_trace()
 
     a_f = model_f._parameters[0]
     q_f = model_f._parameters[2]
@@ -52,9 +54,9 @@ def gc_extraction(y, f, p, n_eigenmodes, alpha=0.5, beta=0.1):
     bias_r = np.zeros((nx, nx))
 
 
-    # # learn reduced models
-    # a_init = np.empty_like(a_f)
-    #
+    # learn reduced models
+    a_init = np.empty_like(a_f)
+
     # q_d = np.diag(q_f)
     # q_reg = [sum(q_d[i:i + n_eigenmodes]) for i in range(0, m, n_eigenmodes)]
     # q_reg_sort = np.sort(q_reg)
@@ -67,29 +69,80 @@ def gc_extraction(y, f, p, n_eigenmodes, alpha=0.5, beta=0.1):
     #         break
     #
     # src_selection = idx[nx - i - 1:nx]
-    # # print(src_selection)
-    # for i, j in itertools.product(src_selection, repeat=2):
-    #     if i == j:
-    #         continue
-    #
-    #     target = string_link(i, n_eigenmodes)
-    #     src = string_link(j, n_eigenmodes)
-    #
-    #     link = target + '->' + src
-    #     print(link)
-    #     a_init[:] = a_f[:]
-    #     a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
-    #     model_r = NeuraLVAR(p, use_lapack=False)
-    #     model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f * 1, restriction=link, alpha=alpha, beta=beta, **kwargs)
-    #
-    #     # a_r = model_r._ravel_a(model_r._parameters[0])
-    #     # q_r = model_r._parameters[2]
-    #     # x_r = model_r._parameters[4]
-    #     bias_r[j, i] = model_r.compute_bias(y.T)
-    #
-    #     dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+    # print(src_selection)
 
-    return dev_raw, bias_r, bias_f, a_f, q_f
+    # ipdb.set_trace()
+    # if ROIs == None:
+    #     src_selection = range(0, nx)
+    # else:
+    #     src_selection = ROIs
+    if ROIs is None:
+        ROIs = range(0, nx)
+    elif ROIs == 'just_full_model':
+        ROIs = [0]
+
+    sparsity = np.sum(np.absolute(a_f), axis=0)
+    sparsity_factor = 0.1
+
+    for i, j in tqdm(itertools.product(ROIs, repeat=2)):
+        if i == j:
+            continue
+        if np.sum(sparsity[j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes]) \
+            <= sparsity_factor*np.max(a_f[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, :]):
+            # print('It is sparse!')
+            continue
+
+        target = string_link(i, n_eigenmodes)
+        src = string_link(j, n_eigenmodes)
+
+        link = f"{target}->{src}"
+        # "{:s}->{:s}".format(target, src)
+        print(link)
+        a_init[:] = a_f[:]
+        a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
+        model_r = NeuraLVAR(p, use_lapack=False)
+        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f * 1, restriction=link, alpha=alpha, beta=beta, **kwargs)
+
+        # a_r = model_r._ravel_a(model_r._parameters[0])
+        # q_r = model_r._parameters[2]
+        # x_r = model_r._parameters[4]
+        bias_r[j, i] = model_r.compute_bias(y.T)
+
+        # if model_r._lls[-1] - model_f._lls[-1] > 0:
+        #     continue
+        # else:
+        dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+
+    return dev_raw, bias_r, bias_f, a_f, q_f, lambda_f, model_f._lls[-1]
+
+
+def full_model_estimation(y, f, p, n_eigenmodes, beta=0.1):
+
+    n, m = f.shape
+    nx = m // n_eigenmodes
+
+    r = np.eye(n)
+
+    lambda_range = [1, 0.1, 0.01, 0.001]
+
+    max_iter = 100
+    max_cyclic_iter = 3
+    tol = 1e-8
+    kwargs = {'max_iter': max_iter,
+              'max_cyclic_iter': max_cyclic_iter,
+              'rel_tol': tol}
+
+    # learn the full model
+    model_f = NeuraLVARCV(p, 10, 5, 10, use_lapack=False)
+
+    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=0.5, beta=beta, **kwargs)
+
+    a_f = model_f._parameters[0]
+    q_f = model_f._parameters[2]
+    # x_f = model_f._parameters[4]
+    # lambda_f = model_f.lambda_
+
+    return model_f._lls[-1], a_f, q_f
 
 
 def simulation_rnd():
@@ -176,7 +229,7 @@ def simulation_rnd():
 
 
 class NLGC:
-    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, dev_raw, bias_f, bias_r, a_f, q_f, lambda_f):
+    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, d_raw, bias_f, bias_r, a_f, q_f, lambda_f):
 
         self.subject = subject
         self.nx = nx
@@ -184,7 +237,7 @@ class NLGC:
         self.t = t
         self.p = p
         self.n_eigenmodes = n_eigenmodes
-        self.dev_raw = dev_raw
+        self.d_raw = d_raw
         self.bias_f = bias_f
         self.bias_r = bias_r
         self.a_f = a_f
@@ -192,10 +245,17 @@ class NLGC:
         self.lambda_f = lambda_f
 
     def compute_debiased_dev(self):
-        return self.d_raw - bias_f + bias_r
+        bias_mat = self.bias_r.copy()
+        bias_mat[bias_mat != 0] -= self.bias_f
+        # ipdb.set_trace()
 
-    def fdr(self, alpha):
-        return fdr_control(self.compute_debiased_dev(self), self.p * self.n_eigenmodes, alpha)
+        d = self.d_raw + bias_mat
+        d[d <= 0] = 0
+        np.fill_diagonal(d, 0)
+        return d
+
+    def fdr(self, alpha=0.05):
+        return fdr_control(self.compute_debiased_dev(), self.p * self.n_eigenmodes, alpha)
 
     def save_(self, add):
         pass

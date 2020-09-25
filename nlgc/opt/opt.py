@@ -12,6 +12,10 @@ from sklearn.model_selection import TimeSeriesSplit
 from nlgc.opt.e_step import sskf, align_cast
 from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll
 
+filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
+logging.basicConfig(filename=filename, level=logging.DEBUG)
+import ipdb
+
 
 class NeuraLVAR:
     """Neural Latent Vector Auto-Regressive model
@@ -361,6 +365,7 @@ class NeuraLVARCV(NeuraLVAR):
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
+            a_init = a_.copy()
             cv[split, i] = cross_ll
             val += cross_ll
 
@@ -428,6 +433,7 @@ class NeuraLVARCV(NeuraLVAR):
 
         # Find best mu
         normalized_cross_lls = self.mse_path - self.mse_path.max()
+        ipdb.set_trace()
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         best_lambda = lambda_range[index]
 
