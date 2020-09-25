@@ -10,7 +10,7 @@ from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 from nlgc._utils import debiased_dev
 from nlgc._stat import fdr_control
 from matplotlib import pyplot as plt
-
+from tqdm import tqdm
 
 def string_link(reg_idx, emod):
     temp = f"{list(range(reg_idx*emod, reg_idx*emod + emod))}"
@@ -28,10 +28,10 @@ def gc_extraction(y, f, p, n_eigenmodes, ROIs = None, beta=0.1):
 
     r = np.eye(n)
 
-    lambda_range = [1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
+    lambda_range = [1, 0.1, 0.01, 0.001]
 
-    max_iter = 100
-    max_cyclic_iter = 3
+    max_iter = 50
+    max_cyclic_iter = 5
     tol = 1e-8
     kwargs = {'max_iter': max_iter,
               'max_cyclic_iter': max_cyclic_iter,
@@ -72,25 +72,31 @@ def gc_extraction(y, f, p, n_eigenmodes, ROIs = None, beta=0.1):
     # print(src_selection)
 
     # ipdb.set_trace()
-    if ROIs == None:
-        src_selection = range(0, nx)
-    else:
-        src_selection = ROIs
+    # if ROIs == None:
+    #     src_selection = range(0, nx)
+    # else:
+    #     src_selection = ROIs
+    if ROIs is None:
+        ROIs = range(0, nx)
+    elif ROIs == 'just_full_model':
+        ROIs = [0]
 
     sparsity = np.sum(np.absolute(a_f), axis=0)
-    sparsity_factor = 0.2*p
+    sparsity_factor = 0.1
 
-    for i, j in itertools.product(src_selection, repeat=2):
+    for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
-        if np.sum(sparsity[j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes]) <= sparsity_factor:
+        if np.sum(sparsity[j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes]) \
+            <= sparsity_factor*np.max(a_f[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, :]):
             # print('It is sparse!')
             continue
 
         target = string_link(i, n_eigenmodes)
         src = string_link(j, n_eigenmodes)
 
-        link = target + '->' + src
+        link = f"{target}->{src}"
+        # "{:s}->{:s}".format(target, src)
         print(link)
         a_init[:] = a_f[:]
         a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
@@ -102,12 +108,13 @@ def gc_extraction(y, f, p, n_eigenmodes, ROIs = None, beta=0.1):
         # x_r = model_r._parameters[4]
         bias_r[j, i] = model_r.compute_bias(y.T)
 
-        if model_r._lls[-1] - model_f._lls[-1] > 0:
-            continue
-        else:
-            dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+        # if model_r._lls[-1] - model_f._lls[-1] > 0:
+        #     continue
+        # else:
+        dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
 
     return dev_raw, bias_r, bias_f, a_f, q_f, lambda_f, model_f._lls[-1]
+
 
 def full_model_estimation(y, f, p, n_eigenmodes, beta=0.1):
 
