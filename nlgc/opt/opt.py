@@ -12,9 +12,6 @@ from sklearn.model_selection import TimeSeriesSplit
 from nlgc.opt.e_step import sskf, align_cast
 from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll
 
-filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
-logging.basicConfig(filename=filename, level=logging.DEBUG)
-
 
 class NeuraLVAR:
     """Neural Latent Vector Auto-Regressive model
