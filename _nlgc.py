@@ -37,8 +37,10 @@ def nlgc_map(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=100
         rank=None, mode='svd_flip', n_eigenmodes=2,):
     _check_reference(evoked)
 
+    depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
+
     forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
-        forward, evoked.info, noise_cov, pca, depth, loose, rank)
+        forward, evoked.info, noise_cov, pca, depth_dict, loose, rank)
 
     if not is_fixed_orient(forward):
         raise ValueError(f"Cannot work with free orientation forward: {forward}")
