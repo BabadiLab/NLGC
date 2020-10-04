@@ -147,18 +147,18 @@ def full_model_estimation(y, f, p, n_eigenmodes, beta=0.1):
 
 def simulation_rnd():
 
-    n, nx, n_eigenmodes, p = 10, 3, 1, 3
+    n, nx, n_eigenmodes, p = 2, 2, 1, 2
     np.random.seed(0)
 
     m = nx * n_eigenmodes
 
-    t = 500
+    t = 100
 
     r = np.eye(n)
     q = 0.1 * np.eye(m)
     q[0, 0] = 10
     q[1, 1] = 11
-    q[2, 2] = 8
+    # q[2, 2] = 8
     # q[3, 3] = 9
     # q[4, 4] = 11
     # q[5, 5] = 9.5
@@ -170,9 +170,11 @@ def simulation_rnd():
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
 
-    a[0, 0, 2] = -0.8
+    a[0, 0, 1] = -0.8
 
-    a[0, 1, 2] = 0.6
+    a[1, 0, 0] = 0.2
+
+    a[1, 1, 1] = 0.2
 
     # a[1, 1, 4] = -0.8
 
@@ -200,8 +202,8 @@ def simulation_rnd():
     #
     # a[2, 6, 9] = 0.85
 
-    for i in range(1, m):
-        a[2, i, i] = 0.1
+    # for i in range(1, m):
+    #     a[2, i, i] = 0.1
 
     sn = np.random.standard_normal((m + n) * t)
     u = sn[:m * t]
@@ -213,7 +215,8 @@ def simulation_rnd():
     l = linalg.cholesky(r, lower=True)
     v = v.dot(l.T)
 
-    f = np.random.randn(n, m)
+    # f = np.random.randn(n, m)
+    f = np.eye(n)
     x = np.empty((t, m), dtype=np.float64)
     for i in range(p):
         x[i] = 0.0

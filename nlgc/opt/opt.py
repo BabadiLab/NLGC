@@ -432,8 +432,9 @@ class NeuraLVARCV(NeuraLVAR):
 
         # Find best mu
         normalized_cross_lls = self.mse_path - self.mse_path.max()
-        ipdb.set_trace()
+        # ipdb.set_trace()
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
+        ipdb.set_trace()
         best_lambda = lambda_range[index]
 
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,

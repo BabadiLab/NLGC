@@ -20,8 +20,8 @@ labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)
 
 # run different eigenmodes and compare ll_f
 if __name__ == "__main__":
-    # filehandler = open('o0.obj', 'rb')
-    # obj1 = pickle.load(filehandler)
+    filehandler = open('o0.obj', 'rb')
+    obj1 = pickle.load(filehandler)
     p = 4
     n_eigenmodes = 2
     n_segments = 1
