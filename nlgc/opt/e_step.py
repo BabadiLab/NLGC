@@ -5,10 +5,7 @@ import pstats
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import linalg
-
-
-#
-#
+from numba import jit
 
 
 def sskf(y, a, f, q, r, xs=None, use_lapack=True):
@@ -66,13 +63,14 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     b = linalg.cho_solve((l, low), temp, check_finite=False)
     b = b.T  # Smoother Gain
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
-    s_ = linalg.solve_discrete_lyapunov(b, s_hat)
+    # s_ = linalg.solve_discrete_lyapunov(b, s_hat)
+    s_ = s + b.dot(s - _s).dot(b.T)     # Approximation from Elvira's paper
+
+    f, a, k, b = align_cast((f, a, k, b), use_lapack)
 
     temp = np.empty(dy, dtype=np.float64)
     temp1 = np.empty(dx, dtype=np.float64)
     temp2 = np.empty(dx, dtype=np.float64)
-    f, a, k, b = align_cast((f, a, k, b), use_lapack)
-
     if use_lapack:
         dot = linalg.get_blas_funcs(['gemv'], (a, x_[0]))[0]
     for i in range(t):
@@ -111,8 +109,7 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         else:
             # x_[i] = b.dot(temp1) + x_[i]
             dot(1.0, b, temp1, beta=1.0, y=x_[i], overwrite_y=True)
-
-    return x_, s_, b, s_hat
+    return x_, s, s_, b, s_hat
 
 
 def align_cast(args, use_lapack):
@@ -167,7 +164,7 @@ def test_sskf(t=1000):
 
     pr = cProfile.Profile()
     pr.enable()
-    x_, s_, b, _ = sskf(y.T, a, f, q, r, xs=(_x.T, x_.T), use_lapack=True)
+    x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
     pr.disable()
     s1 = io.StringIO()
     ps = pstats.Stats(pr, stream=s1).sort_stats(pstats.SortKey.CUMULATIVE)
@@ -176,12 +173,26 @@ def test_sskf(t=1000):
 
     pr = cProfile.Profile()
     pr.enable()
-    x__, s__, b_, _ = sskf(y.T, a, f, q, r, xs=(_x.T, x_.T), use_lapack=False)
+    x__, s__, b_, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
     pr.disable()
     s2 = io.StringIO()
     ps = pstats.Stats(pr, stream=s2).sort_stats(pstats.SortKey.CUMULATIVE)
     ps.print_stats()
     print(s2.getvalue())
+
+    from codetiming import Timer
+
+    t1 = Timer(name='opt', logger=None)
+    t2 = Timer(name='vanilla', logger=None)
+
+    for _ in range(10):
+        with t1:
+            x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
+    print("Elapsed time: {:.4f}\pm{:.4f}".format(Timer.timers.mean("opt"), Timer.timers.stdev("opt")))
+    for _ in range(10):
+        with t2:
+            x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
+    print("Elapsed time: {:.4f}\pm{:.4f}".format(Timer.timers.mean("vanilla"), Timer.timers.stdev("vanilla")))
 
     fig, axes = plt.subplots(x.shape[1])
     for xi, xi_, xi__, ax in zip(x.T, x_.T, x__.T, axes):

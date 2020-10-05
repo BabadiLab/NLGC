@@ -5,12 +5,13 @@ from multiprocessing import shared_memory, current_process
 from itertools import product
 
 import numpy as np
+from scipy import linalg
 from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
 
 from nlgc.opt.e_step import sskf, align_cast
-from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll
+from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll, compute_cross_ll, solve_for_a_cv
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
@@ -34,7 +35,7 @@ class NeuraLVAR:
     _dims = None
     _parameters = None
     _lls = None
-    lls = None
+    ll = None
     lambda_ = None
     _zeroed_index = None
     restriction = None
@@ -56,7 +57,7 @@ class NeuraLVAR:
         self._use_lapack = use_lapack
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
-             rel_tol=0.0001, xs=None, alpha=0.5, beta=0.1):
+             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1):
         """Internal function that fits the model from given data
 
         Parameters
@@ -117,21 +118,23 @@ class NeuraLVAR:
             a_[:m] = a_upper
             q_[non_zero_indices] = q_upper[non_zero_indices]
 
-            x_, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
-            ll = compute_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
+            x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
             lls.append(ll)
             # stopping cond
             if i > 0:
                 rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
-                if rel_change < rel_tol:
+                if np.abs(rel_change) < rel_tol:
                     break
 
             s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
 
             for _ in range(max_cyclic_iter):
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=1000, tol=0.01,
+                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
                                                zeroed_index=zeroed_index)
-                q_upper = solve_for_q(q_upper, s3, s1, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+                # a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
+                #                                   tol=rel_tol, zeroed_index=zeroed_index, max_n_lambda2=5, cv=5)
+                q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
 
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_
@@ -155,15 +158,38 @@ class NeuraLVAR:
             args = self._parameters
         a, f, q, r, *rest = args
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
-        ll = compute_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
+        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
+        return ll
+
+    def compute_cross_ll(self, y, args=None):
+        """Returns log(p(y|args=(a, f, q, r))).
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        args : tuple of ndarrays, default=None
+            Expect a tuple with the model parameters: (a, f, q, r).
+            if None, self._parameters is used.
+
+        Returns
+        -------
+        log_likelihood : float
+            Returns log(p(y|(a, f, q, r))).
+        """
+        if args is None:
+            args = self._parameters
+        a, f, q, r, *rest = args
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        ll = compute_cross_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
         return ll
 
     def compute_bias(self, y):
         from .._utils import sample_path_bias
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index)
         return bias
 
@@ -291,6 +317,138 @@ class NeuraLVAR:
 
 
 class NeuraLVARCV(NeuraLVAR):
+    def __init__(self, order, max_n_mus=5, cv=5, n_jobs=-1, copy=True, standardize=False, normalize=False,
+            use_lapack=True):
+        self.max_n_mus = max_n_mus
+        self.cv = cv
+        self.n_jobs = n_jobs
+        NeuraLVAR.__init__(self, order, copy, standardize, normalize, use_lapack)
+
+    def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
+             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1):
+        """Internal function that fits the model from given data
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        f : ndarray of shape (n_channels, n_sources)
+        r : ndarray of shape (n_channels, n_channels)
+        lambda2 : float, default=None
+        max_iter : int, default=100
+        max_cyclic_iter : int, default=2
+        a_init : ndarray of shape (order, n_sources, n_sources), default=None
+        q_init : ndarray of shape (n_sources, n_sources), default=None
+        rel_tol : float, default=0.0001
+        xs : tuple of two ndarrays of shape (n_samples, n_sources), default=None
+        alpha: float, default = 0.5
+        beta : float, default = 1
+
+        Returns
+        -------
+        a : ndarray of shape (order, n_sources, n_sources)
+        q : ndarray of shape (n_sources, n_sources),
+        lls : list
+            list containing the likelihood values along the training path
+        f : ndarray of shape (n_channels, n_sources)
+        r : ndarray of shape (n_channels, n_channels)
+        xs : tuple of two ndarrays of shape (n_samples, n_sources)
+            Used for mostly reusing the allocated memories
+        x_ : ndarray of shape (n_samples, n_sources)
+
+        Notes
+        -----
+        To learn restricted model for i --> j, ([j] * p, list(range(i, m*p, m))) are set
+        as zeroed index.
+        non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+        This equivalent to alpha*n - 2 additional observations that sum to beta*n.
+        """
+        y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack = \
+            self._prep_for_sskf(y, a_init, f, q_init, r, xs)
+
+        if self.restriction is not None:
+            i_s, j_s = re.split(r'->', self.restriction)
+            i_s = [int(i) for i in re.split(r',', i_s)]
+            j_s = [int(j) for j in re.split(r',', j_s)]
+            # check for i, j's proper range
+            if any(i >= m for i in i_s) or any(j >= m for j in j_s):
+                raise ValueError(f"restriction {self.restriction}: i or j needs to be in range of neural sources, {m}")
+            x_index = []
+            y_index = []
+            for i, j in product(i_s, j_s):
+                x_index.extend([j] * p)
+                y_index.extend(list(range(i, m * p, m)))
+            zeroed_index = (x_index, y_index)
+        else:
+            zeroed_index = None
+
+        lls = []
+        for i in range(max_iter):
+            a_[:m] = a_upper
+            q_[non_zero_indices] = q_upper[non_zero_indices]
+
+            x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
+            lls.append(ll)
+            # stopping cond
+            if i > 0:
+                rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
+                if np.abs(rel_change) < rel_tol:
+                    break
+
+            s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
+
+            for _ in range(max_cyclic_iter):
+                a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
+                                                  tol=rel_tol, zeroed_index=zeroed_index,
+                                                  max_n_lambda2=self.max_n_mus, cv=self.cv)
+                q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+
+        a = self._unravel_a(a_upper)
+        return a, q_upper, lls, f, r, zeroed_index, xs, x_, lambda2
+
+    def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
+            restriction=None, alpha=0.5, beta=0.1):
+        """Fits the model from given m/eeg data, forward gain and noise covariance
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        f : ndarray of shape (n_channels, n_sources)
+        r : ndarray of shape (n_channels, n_channels)
+        lambda2 : float, default=None
+        max_iter : int, default=100
+        max_cyclic_iter : int, default=2
+        a_init : ndarray of shape (order, n_sources, n_sources), default=None
+        q_init : ndarray of shape (n_sources, n_sources), default=None
+        rel_tol : float, default=0.0001
+        restriction : regular expression like 'i->j' or 'i1,i2->j1,j2', default = None
+            i and j should be integers.
+        alpha: float, default = 0.5
+        beta : float, default = 1
+
+        Notes
+        -----
+        To learn restricted model for i --> j, pass ([j] * p, list(range(i, m*p, m)))
+        as zeroed index.
+        non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+        This equivalent to alpha*n - 2 additional observations that sum to beta*n.
+        """
+        if (restriction is None or re.search('->', restriction)) is False:
+            raise ValueError(f"restriction:{restriction} should be None or should have format 'i->j'!")
+        self.restriction = restriction
+        a, q_upper, lls, f, r, zeroed_index, _, x_, lambda2 = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
+                                                               max_cyclic_iter=max_cyclic_iter, a_init=a_init,
+                                                               q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
+
+        self._parameters = (a, f, q_upper, r, x_)
+        self._zeroed_index = zeroed_index
+        self._lls = lls
+        self.ll = lls[-1]
+        self.lambda_ = lambda2
+        return self
+
+
+class NeuraLVARCV_(NeuraLVAR):
     """Neural Latent Vector Auto-Regressive model (supports cross-validation)
 
     Provides a vector auto-regressive model for the unobserved (latent) source activities
@@ -361,11 +519,13 @@ class NeuraLVARCV(NeuraLVAR):
         val = 0
         for i, lambda2 in enumerate(lambda_range):
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
-            a_, q_upper, lls, *rest, xs, _ = \
+            a_, q_upper, lls, _, _, _, xs, _ = \
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
+            # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
-            a_init = a_.copy()
+            # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
+            # a_init = a_.copy()
             cv[split, i] = cross_ll
             val += cross_ll
 
@@ -407,10 +567,12 @@ class NeuraLVARCV(NeuraLVAR):
 
         # do cvsplits
         if isinstance(self.cv, int):
-            kf = TimeSeriesSplit(n_splits=self.cv)
+            kf = TimeSeriesSplit(n_splits=2*self.cv)
+            cvsplits = [split for split in kf.split(y.T)][-self.cv:]
         else:
             kf = self.cv
-        cvsplits = [split for split in kf.split(y.T)]
+            cvsplits = [split for split in kf.split(y.T)]
+        # import ipdb; ipdb.set_trace()
 
         cv_mat = np.zeros((len(cvsplits), len(lambda_range)), dtype=y.dtype)
         # Use parallel processing
@@ -422,7 +584,10 @@ class NeuraLVARCV(NeuraLVAR):
         initargs = (info_y, info_f, info_r, info_cv, cvsplits, lambda_range,
                     max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
-        Parallel(n_jobs=self.n_jobs, )(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
+        # out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
+        print('Starting cross-validation')
+        Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
+        print('Done cross-validation')
 
         self.cv_lambdas = lambda_range
         cv_mat[:, :] = np.reshape(shared_cv_mat, cv_mat.shape)
@@ -433,9 +598,10 @@ class NeuraLVARCV(NeuraLVAR):
 
         # Find best mu
         normalized_cross_lls = self.mse_path - self.mse_path.max()
-        ipdb.set_trace()
+        # ipdb.set_trace()
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         best_lambda = lambda_range[index]
+        print(f'best_regularizing parameter: {best_lambda}')
 
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
                                                                max_cyclic_iter=max_cyclic_iter, a_init=a_init,

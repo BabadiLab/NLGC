@@ -6,13 +6,13 @@ import ipdb
 from codetiming import Timer
 
 ## Change this folder name to "'your_mounted_drive'\behrad\Aging" before running the script
-behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
+behrad_root = "G:\\My Drive\\behrad\\Aging"
 
 ## The corresponding files are alraedy uploaded in Drive
 evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
 evoked[0] = evoked[0].filter(0.1, 4.5, phase='minimum')
-evoked[0] = evoked[0].decimate(10, offset=4)
-evoked[0].crop(tmin=20)
+evoked[0] = evoked[0].decimate(8, offset=3)
+evoked[0].crop(tmin=20, tmax=60)
 forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
 er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
 fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
@@ -26,26 +26,37 @@ if __name__ == "__main__":
     n_eigenmodes = 2
     n_segments = 1
     max_iter = 100
-    max_cyclic_iter = 1
-    tol = 1e-8
-    sparsity_factor = 0
-    # ROIs_names = ['transversetemporal', 'superiorfrontal']
-    ROIs_names = ['just_full_model']
+    max_cyclic_iter = 2
+    tol = 1e-3
+    sparsity_factor = 0.01
+    ROIs_names = ['superiorfrontal', 'rostralmiddlefrontal', 'caudalmiddlefrontal' ,'parsopercularis',
+                  'parstriangularis', 'parsorbitalis', 'caudalanteriorcingulate', 'insula', # Frontal
+                  'inferiorparietal', 'posteriorcingulate', # Parietal
+                  'superiortemporal', 'middletemporal', 'inferiortemporal', 'transversetemporal'] # temporal
+
+    # ROIs_names = ['precentral', 'superiorparietal']
+    # ROIs_names = ['just_full_model']
     # lambda_range_ = np.array([-8, -9, -10, -11, -12, -13, -14, -15, -16, -18, -20, -22, -24])
     # lambda_range = 1 / (10 ** -lambda_range_)
-    lambda_range = [1e2, 1e0, 1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
-    obj_list = []
-    with Timer(name='testMEG'):
-        alpha = 0
-        beta = 0
-        obj_list.append(nlgc_map('test', evoked[0], forward, er_cov, labels, p=p, n_eigenmodes=n_eigenmodes, alpha=alpha,
-                       beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=lambda_range,
-                       max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor))
-        # obj_list[0].save_object('o0')
+    lambda_range = [1e-5, 1e-7, 1e-9, 1e-11, 1e-13]
+    alpha = 0.1
+    beta = 0.05 * 0.1
+    out = nlgc_map('test', evoked[0], forward, er_cov, labels, p=p, n_eigenmodes=n_eigenmodes, alpha=alpha,
+             beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=lambda_range,
+             max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
 
-    print(np.diag(obj_list[0].q_f[0]))
-    print('log-likelihood is:', obj_list[0].ll_f[0])
-    print('lambda is:', obj_list[0].lambda_f[0])
+    # obj_list = []
+    # with Timer(name='testMEG'):
+    #     alpha = 0
+    #     beta = 0
+    #     obj_list.append(nlgc_map('test', evoked[0], forward, er_cov, labels, p=p, n_eigenmodes=n_eigenmodes, alpha=alpha,
+    #                    beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=lambda_range,
+    #                    max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor))
+    #     # obj_list[0].save_object('o0')
+    #
+    # print(np.diag(obj_list[0].q_f[0]))
+    # print('log-likelihood is:', obj_list[0].ll_f[0])
+    # print('lambda is:', obj_list[0].lambda_f[0])
 
     # with Timer(name='testMEG'):
     #     alpha = 0.1

@@ -147,8 +147,6 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
         g0 = g0 / np.sqrt(g0.T.dot(g0))
         g[:, i] = g0[:, 0]
 
-
-
     selected_ROIs_ = list()
     for k in range(0, len(selected_ROIs)):
         selected_ROIs_.append([i for i, value in enumerate(auditory_ROIs) if value == selected_ROIs[k]][0])
