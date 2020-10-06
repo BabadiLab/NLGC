@@ -305,9 +305,9 @@ def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n
     return nlgc_obj
 
 
-def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names=['just_full_model'], n_segments=1,
-             loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip',
-             lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
+def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names='just_full_model',
+        n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
+        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
     _check_reference(evoked)
 
     depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
