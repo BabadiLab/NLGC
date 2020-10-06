@@ -28,22 +28,23 @@ if __name__ == "__main__":
     max_iter = 100
     max_cyclic_iter = 2
     tol = 1e-3
-    sparsity_factor = 0.01
-    ROIs_names = ['superiorfrontal', 'rostralmiddlefrontal', 'caudalmiddlefrontal' ,'parsopercularis',
-                  'parstriangularis', 'parsorbitalis', 'caudalanteriorcingulate', 'insula', # Frontal
+    sparsity_factor = 0.00
+    ROIs_names = ['superiorfrontal', 'rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis',
+                  'parstriangularis', 'parsorbitalis', 'caudalanteriorcingulate', 'insula',
+                  'lateralorbitofrontal', # Frontal
                   'inferiorparietal', 'posteriorcingulate', # Parietal
-                  'superiortemporal', 'middletemporal', 'inferiortemporal', 'transversetemporal'] # temporal
+                  'superiortemporal', 'middletemporal', 'inferiortemporal', 'transversetemporal'
+                  'bankssts', 'fusiform',] # temporal
 
     # ROIs_names = ['precentral', 'superiorparietal']
     # ROIs_names = ['just_full_model']
     # lambda_range_ = np.array([-8, -9, -10, -11, -12, -13, -14, -15, -16, -18, -20, -22, -24])
     # lambda_range = 1 / (10 ** -lambda_range_)
-    lambda_range = [1e-5, 1e-7, 1e-9, 1e-11, 1e-13]
     alpha = 0.1
     beta = 0.05 * 0.1
     out = nlgc_map('test', evoked[0], forward, er_cov, labels, p=p, n_eigenmodes=n_eigenmodes, alpha=alpha,
-             beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=lambda_range,
-             max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
+             beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=None,
+             max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor, depth=0.0)
 
     # obj_list = []
     # with Timer(name='testMEG'):

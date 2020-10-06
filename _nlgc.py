@@ -161,7 +161,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     model_f = NeuraLVARCV_(p, 10, cv, n_jobs, use_lapack=True)
     if lambda_range is None:
         lambda_range = _default_lambda_range
-    model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init, alpha=alpha, beta=beta,
+    model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
@@ -172,14 +172,15 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
     # learn reduced models
     a_f = model_f._parameters[0]
-    q_f = q_init
+    q_f = model_f._parameters[2]
     lambda_f = model_f.lambda_
     a_init = np.empty_like(a_f)
+    mul = np.exp(n_eigenmodes * p / y.shape[1])
 
     (a_f, q_f, bias_r, dev_raw, conv_flag, y, f)  # shared memory
     (r, alpha, beta, n_eigenmodes, kwargs) # can be passed directly
 
-    sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.model_f._parameters[2]
+    sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
@@ -187,23 +188,25 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
         target = expand_roi_indices_as_tup(j, n_eigenmodes)
         source = expand_roi_indices_as_tup(i, n_eigenmodes)
-        if np.sum(sparsity[target, source]) <= sparsity_factor * np.max(a_f[:, target, :]):
+        if np.sum(sparsity[target, source]) < sparsity_factor * np.max(np.abs(a_f[:, target, target])):
             continue
 
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
         a_init[:] = a_f[:]
-        a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
+        a_init[:, target, source] = 0.0
         model_r = NeuraLVAR(p, use_lapack=True)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init, q_init=q_f * 1, restriction=link, alpha=alpha, beta=beta, **kwargs)
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
+                    beta=beta, **kwargs)
         print(model_r._lls)
 
         bias_r[j, i] = model_r.compute_bias(y)
 
         dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
 
+        # import ipdb;ipdb.set_trace()
         conv_flag[j, i] = len(model_r._lls) == max_iter
 
-    return dev_raw, bias_r, bias_f, a_f, q_f, lambda_f, model_f._lls, conv_flag
+    return dev_raw, bias_r, bias_f, model_f._parameters[0], model_f._parameters[2], lambda_f, model_f._lls, conv_flag
 
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
