@@ -3,7 +3,7 @@
 
 import ipdb
 import itertools
-from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
+from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV, NeuraLVARCV_
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -17,6 +17,10 @@ import ipdb
 from nlgc._stat import fdr_control
 import pickle
 # from nlgc.core import gc_extraction, NLGC
+from codetiming import Timer
+from multiprocessing import cpu_count
+
+plt.ion()
 
 def truncatedsvd(a, n_components=2):
     if n_components > min(*a.shape):
@@ -38,102 +42,6 @@ _svd_funcs = {
 def _reapply_source_weighting(X, source_weighting):
     X *= source_weighting[:, None]
     return X
-
-
-def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names=['just_full_model'], n_segments=1,
-             loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip',
-             lambda_range=[1, 0.1, 0.01, 0.001], max_iter=50, max_cyclic_iter=5, tol=1e-8, sparsity_factor=0.1):
-    _check_reference(evoked)
-
-    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
-        forward, evoked.info, noise_cov, pca, depth, loose, rank)
-
-    if not is_fixed_orient(forward):
-        raise ValueError(f"Cannot work with free orientation forward: {forward}")
-
-    # get the data
-    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
-    M = evoked.data[sel]
-
-    # whiten the data
-    logger.info('Whitening data matrix.')
-    M = np.dot(whitener, M)
-    M /= np.linalg.norm(M, ord='fro')
-    ## copy till here
-    # extract label eigenmodes
-    G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
-    # test if there are empty columns
-
-    sel = np.any(G, axis=0)
-    G = G[:, sel].copy()
-    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
-    src_flip = [i for select, i in zip(sel, src_flip) if select]
-
-    _, S, _ = np.linalg.svd(G)
-    G /= np.max(np.absolute(np.diag(S)))
-
-
-    discarded_labels =[]
-    j = 0
-    for i, sel_ in enumerate(sel[::n_eigenmodes]):
-        if not sel_:
-            discarded_labels.append(labels.pop(i-j))
-            j += 1
-    assert j == len(discarded_labels)
-    if j > 0:
-        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
-                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
-
-
-    ROIs_idx = list()
-
-    if ROIs_names == None:
-        ROIs_idx = list(range(0, len(labels)))
-    else:
-        for ROIs_name in ROIs_names:
-            ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
-
-    out_obj = _nlgc_map_opt(name, M, G, p, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments, alpha=alpha, beta=beta,
-                            lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
-
-    return out_obj
-
-
-def _nlgc_map_opt(name, M, gain, p, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
-                  lambda_range=[1, 0.1, 0.01, 0.001], max_iter=50, max_cyclic_iter=5, tol=1e-8, sparsity_factor=0.1):
-    ny, nnx = gain.shape
-    nx = nnx // n_eigenmodes
-    _, t = M.shape
-    tt = t // n_segments
-
-    d_raw = np.zeros((n_segments, nx, nx))
-    bias_r = np.zeros((n_segments, nx, nx))
-    bias_f = np.zeros((n_segments, 1))
-    a_f = np.zeros((n_segments, p, nnx, nnx))
-    q_f = np.zeros((n_segments, nnx, nnx))
-    lambda_f = np.zeros((n_segments, 1))
-    ll_f = np.zeros((n_segments, max_iter))
-    conv_flag = np.zeros((n_segments, nx, nx))
-
-    for n in range(0, n_segments):
-        print('Segment: ', n+1)
-        d_raw_, bias_r_, bias_f_, a_f_, q_f_, lambda_f_, ll_f_, conv_flag_ = \
-            gc_extraction(M[:, n*tt: (n+1)*tt].T, gain, p=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs, alpha=alpha, beta=beta,
-                          lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
-
-        d_raw[n, :, :] = d_raw_
-        bias_r[n, :, :] = bias_r_
-        bias_f[n] = bias_f_
-        a_f[n, :, :, :] = a_f_
-        q_f[n, :, :] = q_f_
-        lambda_f[n] = lambda_f_
-        ll_f[n, 0:len(ll_f_)] = ll_f_
-        conv_flag[n, :, :] = conv_flag_
-
-
-    nlgc_obj = NLGC(name, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, a_f, q_f, lambda_f, ll_f, conv_flag)
-
-    return nlgc_obj
 
 
 def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=2, allow_empty=False,
@@ -217,80 +125,92 @@ def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=
         return label_eigenmodes.T, label_vertidx, src_flip
 
 
-def string_link(reg_idx, emod):
-    temp = f"{list(range(reg_idx*emod, reg_idx*emod + emod))}"
-    temp = temp.replace(" ", "")
-    temp = temp.replace("[", "")
-    temp = temp.replace("]", "")
+def expand_roi_indices_as_tup(reg_idx, emod):
+    return tuple(range(reg_idx * emod, reg_idx * emod + emod))
 
-    return temp
+_default_lambda_range = [5e1, 2e1, 1e1, 5e0, 2e0, 1e0, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2]
 
-
-def gc_extraction(y, f, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0, lambda_range=[1, 0.1, 0.01, 0.001], \
-                  max_iter=50, max_cyclic_iter=5, tol=1e-8, sparsity_factor=0.1):
+def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
+                  lambda_range=None, max_iter=50, max_cyclic_iter=5,
+                  tol=1e-3, sparsity_factor=0.1, cv=5):
 
     n, m = f.shape
     nx = m // n_eigenmodes
-
-    r = np.eye(n)
 
     kwargs = {'max_iter': max_iter,
               'max_cyclic_iter': max_cyclic_iter,
               'rel_tol': tol}
 
     # learn the full model
-    model_f = NeuraLVARCV(p, 10, 3, 5, use_lapack=False)
+    n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
+    n_jobs = min(n_jobs, cpu_count())
 
+    finv = linalg.pinv(f.T.dot(f) + 1/m).dot(f.T)
+    x_est = finv.dot(y)
+    x_ = np.vstack(tuple([x_est[:, p-i:-i] for i in range(1,p+1)]))
+    s1 = x_est[:, p:].dot(x_.T) / x_.shape[-1]
+    s2 = x_.dot(x_.T) / x_.shape[-1]
+    lambda2 = s1.max() / 5
+    q_init = np.eye(m)
+    a_init = np.zeros_like(s1)
+    from nlgc.opt.m_step import solve_for_a, solve_for_q
+    a_init, _ = solve_for_a(q_init, s1, s2, a_init, lambda2)
 
-    model_f.fit(y.T, f, r, lambda_range, a_init=None, q_init=np.eye(m), alpha=alpha, beta=beta, **kwargs)
+    a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
 
-    a_f = model_f._parameters[0]
-    q_f = model_f._parameters[2]
-    lambda_f = model_f.lambda_
-    bias_f = model_f.compute_bias(y.T)
+    model_f = NeuraLVARCV_(p, 10, cv, n_jobs, use_lapack=True)
+    if lambda_range is None:
+        lambda_range = _default_lambda_range
+    model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
+                    **kwargs)
+    # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
+    bias_f = model_f.compute_bias(y)
 
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
-    conv_flag = np.zeros((nx, nx))
+    conv_flag = np.zeros((nx, nx), dtype=np.bool_)
 
     # learn reduced models
+    a_f = model_f._parameters[0]
+    q_f = model_f._parameters[2]
+    lambda_f = model_f.lambda_
     a_init = np.empty_like(a_f)
+    mul = np.exp(n_eigenmodes * p / y.shape[1])
 
-    if ROIs is None:
-        ROIs = range(0, nx)
-    elif ROIs == 'just_full_model':
-        ROIs = [0]
+    (a_f, q_f, bias_r, dev_raw, conv_flag, y, f)  # shared memory
+    (r, alpha, beta, n_eigenmodes, kwargs) # can be passed directly
 
-    sparsity = np.sum(np.absolute(a_f), axis=0)
+    sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
-        if np.sum(sparsity[j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes]) \
-                <= sparsity_factor*np.max(a_f[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, :]):
+
+        target = expand_roi_indices_as_tup(j, n_eigenmodes)
+        source = expand_roi_indices_as_tup(i, n_eigenmodes)
+        if np.sum(sparsity[target, source]) < sparsity_factor * np.max(np.abs(a_f[:, target, target])):
             continue
 
-        target = string_link(i, n_eigenmodes)
-        src = string_link(j, n_eigenmodes)
-
-        link = f"{target}->{src}"
-        # "{:s}->{:s}".format(target, src)
-        # print(link)
+        link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
         a_init[:] = a_f[:]
-        a_init[:, j * n_eigenmodes: (j + 1) * n_eigenmodes, i * n_eigenmodes: (i + 1) * n_eigenmodes] = 0
-        model_r = NeuraLVAR(p, use_lapack=False)
-        model_r.fit(y.T, f, r, lambda_f, a_init=a_init, q_init=q_f * 1, restriction=link, alpha=alpha, beta=beta, **kwargs)
+        a_init[:, target, source] = 0.0
+        model_r = NeuraLVAR(p, use_lapack=True)
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
+                    beta=beta, **kwargs)
+        print(model_r._lls)
 
-        bias_r[j, i] = model_r.compute_bias(y.T)
+        bias_r[j, i] = model_r.compute_bias(y)
 
-        dev_raw[j, i] = -2 * (model_r._lls[-1] - model_f._lls[-1])
+        dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
 
-        conv_flag[j, i] = len(model_r._lls)
+        # import ipdb;ipdb.set_trace()
+        conv_flag[j, i] = len(model_r._lls) == max_iter
 
-    return dev_raw, bias_r, bias_f, a_f, q_f, lambda_f, model_f._lls, conv_flag
+    return dev_raw, bias_r, bias_f, model_f._parameters[0], model_f._parameters[2], lambda_f, model_f._lls, conv_flag
 
 class NLGC:
-    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, a_f, q_f, lambda_f, ll_f, conv_flag):
+    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
+            a_f, q_f, lambda_f, ll_f, conv_flag, label_names, label_vertidx):
 
         self.subject = subject
         self.nx = nx
@@ -307,6 +227,8 @@ class NLGC:
         self.lambda_f = lambda_f
         self.ll_f = ll_f
         self.conv_flag = conv_flag
+        self._labels = label_names
+        self.label_vertidx = label_vertidx
 
     def plot_ll_curve(self):
         fig, ax = plt.subplots()
@@ -323,16 +245,12 @@ class NLGC:
         return fig, ax
 
     def compute_debiased_dev(self):
-        d = np.zeros((self.n_segments, self.nx, self.nx))
+        d = self.d_raw.copy()
         for i in range(0, self.n_segments):
             bias_mat = self.bias_r[i].copy()
             bias_mat[bias_mat != 0] -= self.bias_f[i]
-            # ipdb.set_trace()
 
-            d[i] = self.d_raw[i]
-            d[i][d[i] <= 0] = 0
-            d[i] += bias_mat[i]
-            d[i][d[i] <= 0] = 0
+            d[i] += bias_mat
             np.fill_diagonal(d[i], 0)
         return d
 
@@ -346,3 +264,112 @@ class NLGC:
     def plot(self):
         pass
 
+
+def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
+                  lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1,
+                  cv=5, label_names=None, label_vertidx=None):
+    ny, nnx = gain.shape
+    nx = nnx // n_eigenmodes
+    _, t = M.shape
+    tt = t // n_segments
+
+    d_raw = np.zeros((n_segments, nx, nx))
+    bias_r = np.zeros((n_segments, nx, nx))
+    bias_f = np.zeros((n_segments, 1))
+    a_f = np.zeros((n_segments, p, nnx, nnx))
+    q_f = np.zeros((n_segments, nnx, nnx))
+    lambda_f = np.zeros((n_segments, 1))
+    ll_f = np.zeros((n_segments, max_iter))
+    conv_flag = np.zeros((n_segments, nx, nx))
+
+    for n in range(0, n_segments):
+        print('Segment: ', n+1)
+        d_raw_, bias_r_, bias_f_, a_f_, q_f_, lambda_f_, ll_f_, conv_flag_ = \
+            _gc_extraction(M[:, n * tt: (n + 1) * tt], gain, r, p=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs, alpha=alpha,
+                           beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
+                           max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
+
+        d_raw[n] = d_raw_
+        bias_r[n] = bias_r_
+        bias_f[n] = bias_f_
+        a_f[n] = a_f_
+        q_f[n] = q_f_
+        lambda_f[n] = lambda_f_
+        ll_f[n, 0:len(ll_f_)] = ll_f_
+        conv_flag[n] = conv_flag_
+
+
+    nlgc_obj = NLGC(name, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, a_f, q_f, lambda_f, ll_f,
+                    conv_flag, label_names, label_vertidx)
+
+    return nlgc_obj
+
+
+def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names='just_full_model',
+        n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
+        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
+    _check_reference(evoked)
+
+    depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
+
+    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
+        forward, evoked.info, noise_cov, pca, depth_dict, loose, rank)
+
+    if not is_fixed_orient(forward):
+        raise ValueError(f"Cannot work with free orientation forward: {forward}")
+
+    # get the data
+    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
+    M = evoked.data[sel]
+
+    # whiten the data
+    logger.info('Whitening data matrix.')
+    M = np.dot(whitener, M)
+    ## copy till here
+    # extract label eigenmodes
+    G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+
+    # test if there are empty columns
+    sel = np.any(G, axis=0)
+    G = G[:, sel].copy()
+    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
+    src_flip = [i for select, i in zip(sel, src_flip) if select]
+    discarded_labels =[]
+    j = 0
+    for i, sel_ in enumerate(sel[::n_eigenmodes]):
+        if not sel_:
+            discarded_labels.append(labels.pop(i-j))
+            label_vertidx.pop(i-j)
+            j += 1
+    assert j == len(discarded_labels)
+    if j > 0:
+        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
+                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
+
+    ROIs_idx = list()
+
+    if ROIs_names == None:
+        ROIs_idx = list(range(0, len(labels)))
+    elif ROIs_names == 'just_full_model':
+        ROIs_idx = []
+    else:
+        for ROIs_name in ROIs_names:
+            ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
+
+
+    # Normalization
+    M_normalizing_factor = linalg.norm(np.dot(M, M.T)/M.shape[1], ord='fro')
+    # G_normalizing_factor = linalg.norm(G, ord=2)
+    G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
+    G /= G_normalizing_factor[None, :]
+    G *= np.sqrt(M_normalizing_factor)
+    r = 1
+    label_names = [label.name for label in labels]
+
+    out_obj = _nlgc_map_opt(name, M, G, r, p, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
+                            alpha=alpha, beta=beta,
+                            lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
+                            sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
+                            label_vertidx=label_vertidx)
+
+    return out_obj
