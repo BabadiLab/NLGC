@@ -127,13 +127,13 @@ class NeuraLVAR:
                 if np.abs(rel_change) < rel_tol:
                     break
 
-            s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
+            s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+            beta = 2 * beta / t
+            alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
                 a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
                                                zeroed_index=zeroed_index)
-                # a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
-                #                                   tol=rel_tol, zeroed_index=zeroed_index, max_n_lambda2=5, cv=5)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
 
         a = self._unravel_a(a_upper)
@@ -395,7 +395,9 @@ class NeuraLVARCV(NeuraLVAR):
                 if np.abs(rel_change) < rel_tol:
                     break
 
-            s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
+            s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+            beta = 2 * beta / t
+            alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
                 a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
