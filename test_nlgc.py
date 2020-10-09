@@ -22,12 +22,12 @@ labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)
 if __name__ == "__main__":
     # filehandler = open('o0.obj', 'rb')
     # obj1 = pickle.load(filehandler)
-    p = 4
-    n_eigenmodes = 2
+    p = 2
+    n_eigenmodes = 4
     n_segments = 1
     max_iter = 100
     max_cyclic_iter = 2
-    tol = 1e-3
+    tol = 1e-4
     sparsity_factor = 0.00
     ROIs_names = ['superiorfrontal', 'rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis',
                   'parstriangularis', 'parsorbitalis', 'caudalanteriorcingulate', 'insula',
@@ -40,10 +40,13 @@ if __name__ == "__main__":
     # ROIs_names = ['just_full_model']
     # lambda_range_ = np.array([-8, -9, -10, -11, -12, -13, -14, -15, -16, -18, -20, -22, -24])
     # lambda_range = 1 / (10 ** -lambda_range_)
-    alpha = 0.1
-    beta = 0.05 * 0.1
+    # Inv-Gamma(alpha * 600, beta * 600)
+    epsilon = 0.02
+    alpha = 2 + epsilon
+    beta = 0.01 * (1 + epsilon)
+    lambda_range = [2e-2, 1e-2, 5e-3, 2e-3, 1e-3]
     out = nlgc_map('test', evoked[0], forward, er_cov, labels, p=p, n_eigenmodes=n_eigenmodes, alpha=alpha,
-             beta=beta, ROIs_names=ROIs_names, n_segments=n_segments, lambda_range=None,
+             beta=beta, ROIs_names=None, n_segments=n_segments, lambda_range=None,
              max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor, depth=0.0)
 
     # obj_list = []
