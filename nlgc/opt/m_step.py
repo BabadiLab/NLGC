@@ -52,7 +52,7 @@ def calculate_ss(x_bar, s_bar, b, m, p):
     s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[(p - 1) * m:, (p - 1) * m:]
     # s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[:m, :m]
 
-    return s1, s2, s3
+    return s1, s2, s3, n
 
 
 # @njit(cache=True)
@@ -90,6 +90,7 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
     # tau = 0.99 / h_norm
 
     _a = np.empty_like(a)
+    m = a.shape[0]
 
     changes = np.zeros(max_iter+1)
     changes[0] = 1
@@ -102,6 +103,9 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
         grad = np.dot(a, s2)
         grad -= s1
         grad *= qinv
+
+        if zeroed_index is not None:
+            grad[zeroed_index] = 0.0
 
         # Find opt step-size
         # tau = 0.5 * (grad * grad).sum() / (np.diag(grad.dot(s2.dot(grad.T))) * qinv.ravel()).sum()
@@ -116,6 +120,11 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
 
         # Backward (proximal) step
         a = shrink(temp, lambda2 * tau)
+
+        # #************* make the self history = 0***********
+        # a.flat[::(2*m+1)] = 0.0
+        # a.flat[m::(2*m+1)] = 0.0
+        # # ***************************************************
         # a = np.fabs(temp, out=a)
         # a -= lambda2 * tau
         # a = np.clip(a, a_min=0, a_max=None, out=a)
@@ -156,8 +165,8 @@ def find_best_lambda_cv(cvsplits, lambda2_range, q, x_bar, s_bar, b, m, p, a, ma
 
 def _find_cross_fit_cv(i, cvsplits, lambda2s, q, x_bar, s_bar, b, m, p, a, max_iter=5000, tol=1e-3, zeroed_index=None):
     train, test = cvsplits[i]
-    s1_train, s2_train, _ = calculate_ss(x_bar[train], s_bar, b, m, p)
-    s1_test, s2_test, _ = calculate_ss(x_bar[test], s_bar, b, m, p)
+    s1_train, s2_train, _, _ = calculate_ss(x_bar[train], s_bar, b, m, p)
+    s1_test, s2_test, _, _ = calculate_ss(x_bar[test], s_bar, b, m, p)
     for lambda2 in lambda2s:
         a, _ = solve_for_a(q, s1_train, s2_train, a, lambda2, max_iter, tol, zeroed_index)
         cross_fit = np.sum(np.einsum('ij,ji->i', np.dot(a, s2_test) - 2 * s1_test, a.T) / np.diag(q))
@@ -174,7 +183,7 @@ def solve_for_a_cv(q_upper, x_, s_, b, m, p, a, lambda2=None, max_iter=5000, tol
     else:
         kf = cv
         cvsplits = [split for split in kf.split(x_)]
-    s1, s2, _ = calculate_ss(x_, s_, b, m, p)
+    s1, s2, _, _ = calculate_ss(x_, s_, b, m, p)
     lambda2_max = (s1 / np.diag(q_upper)[:, None]).max()
     lambda2_range = lambda2_max / 5 ** (np.arange(max_n_lambda2) + 1)
     cv_lambda2_range = None
@@ -200,7 +209,7 @@ def solve_for_a_cv(q_upper, x_, s_, b, m, p, a, lambda2=None, max_iter=5000, tol
     return a_upper, best_lambda2
 
 
-def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0.5, beta=0.1):
+def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     """One-step sol to learn q, state-noise covariance matrix
 
     Parameters
@@ -219,7 +228,7 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0.5, beta=0.1):
 
     Notes
     -----
-    non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
+    non-zero alpha, beta values imposes Inv-Gamma(alpha*n/2 - 1, beta*n) prior on q's.
     This equivalent to alpha*n - 2 additional observations that sum to beta*n.
     """
     diag_indices = np.diag_indices_from(q)

@@ -128,11 +128,11 @@ def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=
 def expand_roi_indices_as_tup(reg_idx, emod):
     return tuple(range(reg_idx * emod, reg_idx * emod + emod))
 
-_default_lambda_range = [5e1, 2e1, 1e1, 5e0, 2e0, 1e0, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2]
-
+_default_lambda_range = [5e1, 2e1, 1e1, 5e0, 2e0, 1e0, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4, 5e-5, 2e-5, 1e-5]
+# _default_lambda_range = [1e0]
 def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
-                  tol=1e-3, sparsity_factor=0.1, cv=5):
+                  tol=1e-3, sparsity_factor=0.0, cv=5):
 
     n, m = f.shape
     nx = m // n_eigenmodes
@@ -144,7 +144,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     # learn the full model
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
-    n_jobs = 3
+    # n_jobs = 3
 
     finv = linalg.pinv(f.T.dot(f) + 1/m).dot(f.T)
     x_est = finv.dot(y)
@@ -164,9 +164,11 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
         lambda_range = _default_lambda_range
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
+    with open('model_f_depth=0.0.pkl', 'wb') as fp:
+        pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
-    bias_f = model_f.compute_bias(y)
-    # bias_f = 0
+    # bias_f = model_f.compute_bias(y)
+    bias_f = 0
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
     conv_flag = np.zeros((nx, nx), dtype=np.bool_)
@@ -183,14 +185,14 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
 
         target = expand_roi_indices_as_tup(j, n_eigenmodes)
         source = expand_roi_indices_as_tup(i, n_eigenmodes)
-        if np.sum(sparsity[target, source]) < sparsity_factor * np.max(np.abs(a_f[:, target, target])):
+        if np.sum(sparsity[target, source]) <= sparsity_factor * np.max(np.abs(a_f[:, target, target])):
             continue
 
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
@@ -199,13 +201,13 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
         model_r = NeuraLVAR(p, use_lapack=True)
         model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
                     beta=beta, **kwargs)
-        print(model_r._lls)
+        # print(model_r._lls)
 
-        bias_r[j, i] = model_r.compute_bias(y)
-        # bias_r[j, i] = old_bias(model_r, j, n_eigenmodes=n_eigenmodes)-old_bias(model_f, j, n_eigenmodes=n_eigenmodes)
+        # bias_r[j, i] = model_r.compute_bias(y)
+        bias_r[j, i] = old_bias(model_r, j, n_eigenmodes=n_eigenmodes)-old_bias(model_f, j, n_eigenmodes=n_eigenmodes)
 
-        dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
-        # dev_raw[j, i] = 2*(old_log_likelihood(model_f, j, n_eigenmodes=n_eigenmodes)-old_log_likelihood(model_r, j, n_eigenmodes=n_eigenmodes))
+        # dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
+        dev_raw[j, i] = 2*(old_log_likelihood(model_f, j, n_eigenmodes=n_eigenmodes)-old_log_likelihood(model_r, j, n_eigenmodes=n_eigenmodes))
 
         # import ipdb;ipdb.set_trace()
         conv_flag[j, i] = len(model_r._lls) == max_iter
@@ -269,8 +271,8 @@ class NLGC:
         pass
 
 
-def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
-                  lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1,
+def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs=[], n_segments=1, alpha=0, beta=0,
+                  lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.0,
                   cv=5, label_names=None, label_vertidx=None):
     ny, nnx = gain.shape
     nx = nnx // n_eigenmodes
@@ -311,7 +313,7 @@ def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n
 
 def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names='just_full_model',
         n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
-        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
+        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.0, cv=5):
     _check_reference(evoked)
 
     depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
@@ -369,11 +371,25 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=
     G *= np.sqrt(M_normalizing_factor)
     r = 1
     label_names = [label.name for label in labels]
+##################################################################
+    label_names_ = []
+    for ROI in ROIs_idx:
+        label_names_.append(label_names[ROI])
 
-    out_obj = _nlgc_map_opt(name, M, G, r, p, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
+    G_idx = []
+    for i in ROIs_idx:
+        for k in range(0, n_eigenmodes):
+            G_idx.append(i*n_eigenmodes + k)
+    G_ = G[:, G_idx]
+    ROIs_idx = list(range(0, len(ROIs_idx)))
+
+
+    ##################################################################
+
+    out_obj = _nlgc_map_opt(name, M, G_, r, p, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
-                            sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
+                            sparsity_factor=sparsity_factor, cv=cv, label_names=label_names_,
                             label_vertidx=label_vertidx)
 
     return out_obj

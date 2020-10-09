@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-def visualize_con(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={}, cbarlabel=""):
+def visualize_con(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={}, cbarlabel="", cmap='seismic'):
     lh = []
     rh = []
     for i, label in enumerate(label_names):
@@ -16,7 +16,9 @@ def visualize_con(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={
     nx = len(label_names)
     if not ax:
         ax = plt.gca()
-    im = ax.matshow(a_f)
+    vmax = max(a_f.max(), -a_f.min())
+    vmin = - vmax
+    im = ax.matshow(a_f, cmap=cmap, vmin=vmin, vmax=vmax)
 
     # Create colorbar
     cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)

@@ -127,13 +127,13 @@ class NeuraLVAR:
                 if np.abs(rel_change) < rel_tol:
                     break
 
-            s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
+            s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+            beta = 2 * beta / t
+            alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
                 a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
                                                zeroed_index=zeroed_index)
-                # a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
-                #                                   tol=rel_tol, zeroed_index=zeroed_index, max_n_lambda2=5, cv=5)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
 
         a = self._unravel_a(a_upper)
@@ -395,7 +395,9 @@ class NeuraLVARCV(NeuraLVAR):
                 if np.abs(rel_change) < rel_tol:
                     break
 
-            s1, s2, s3 = calculate_ss(x_, s_, b, m, p)
+            s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+            beta = 2 * beta / t
+            alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
                 a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
@@ -525,7 +527,7 @@ class NeuraLVARCV_(NeuraLVAR):
             # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
-            # a_init = a_.copy()
+            a_init = a_.copy()
             cv[split, i] = cross_ll
             val += cross_ll
 
@@ -600,7 +602,7 @@ class NeuraLVARCV_(NeuraLVAR):
         normalized_cross_lls = self.mse_path - self.mse_path.max()
         # ipdb.set_trace()
         index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        ipdb.set_trace()
+        # ipdb.set_trace()
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')
 

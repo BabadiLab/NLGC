@@ -58,8 +58,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     k = k.T  # Kalman Gain
     s = _s.copy()
     s -= k.dot(temp)
-    (l, low) = linalg.cho_factor(_s, lower=True, check_finite=False)
     temp = a.dot(s)
+    (l, low) = linalg.cho_factor(_s, lower=True, check_finite=False)
     b = linalg.cho_solve((l, low), temp, check_finite=False)
     b = b.T  # Smoother Gain
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
