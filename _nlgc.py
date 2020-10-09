@@ -144,6 +144,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     # learn the full model
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
+    n_jobs = 3
 
     finv = linalg.pinv(f.T.dot(f) + 1/m).dot(f.T)
     x_est = finv.dot(y)
@@ -165,7 +166,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
                     **kwargs)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
-
+    # bias_f = 0
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
     conv_flag = np.zeros((nx, nx), dtype=np.bool_)
@@ -182,6 +183,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
+    ipdb.set_trace()
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
@@ -200,8 +202,10 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
         print(model_r._lls)
 
         bias_r[j, i] = model_r.compute_bias(y)
+        # bias_r[j, i] = old_bias(model_r, j, n_eigenmodes=n_eigenmodes)-old_bias(model_f, j, n_eigenmodes=n_eigenmodes)
 
         dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
+        # dev_raw[j, i] = 2*(old_log_likelihood(model_f, j, n_eigenmodes=n_eigenmodes)-old_log_likelihood(model_r, j, n_eigenmodes=n_eigenmodes))
 
         # import ipdb;ipdb.set_trace()
         conv_flag[j, i] = len(model_r._lls) == max_iter
@@ -373,3 +377,93 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=
                             label_vertidx=label_vertidx)
 
     return out_obj
+
+
+def old_bias(model, reg_idx, n_eigenmodes=1):
+    """Computes the bias in the deviance (behrad@umd.edu)
+
+    Parameters
+    ----------
+    model:  the NEURALVAR model
+    reg_idx:  corresonding ROI index
+    n_eigenmodes:  number of eigenmodes
+
+    Returns
+    -------
+    bias
+    """
+
+    a = np.hstack(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm
+
+    bias = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]
+
+        xi = x_bar[p:, idx_src]
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd = np.diag(q)
+
+        # gradient of log - likelihood
+        ldot = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
+
+        # hessian of log - likelihood
+        ldotdot = -1 / qd[idx_src] * (cx.T @ cx)
+
+        bias += ldot.T@np.linalg.solve(ldotdot, ldot)
+
+    return bias
+
+
+def old_log_likelihood(model, reg_idx, n_eigenmodes=1):
+    """Computes the src log-likelihood (behrad@umd.edu)
+
+    Parameters
+    ----------
+    model:  the NEURALVAR model
+    reg_idx:  corresonding ROI index
+    n_eigenmodes:  number of eigenmodes
+
+    Returns
+    -------
+    src ll
+    """
+
+    a = np.hstack(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm  # what's this??
+
+    ll = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]
+
+        xi = x_bar[p:, idx_src]
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd_ = np.diag(q)
+        qd = qd_[idx_src]
+
+        # ll += -t*np.log(qd)/2 - (np.linalg.norm(xi - cx @ ai)**2)/(2*qd)
+        ll += -t*np.log(qd)/2 - t/2
+
+
+    return ll
+

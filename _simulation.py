@@ -10,7 +10,7 @@ import logging
 from scipy.stats import chi2
 from nlgc._stat import fdr_control
 import itertools
-from _nlgc import gc_extraction, NLGC
+from _nlgc import _gc_extraction, NLGC
 
 
 def _undo_source_weighting(G, source_weighting):
@@ -265,48 +265,43 @@ if __name__ == '__main__':
 
     # behrad_root = r"G:\My Drive\behrad\Aging"
     behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
-    evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
-    forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
-    er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
-    fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
-    labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
+    # evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
+    # forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
+    # er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
+    # fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
+    # labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
 
-    n_eigenmodes = 4
+    n_eigenmodes = 2
     p = 2
     n_segments = 1
-    y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
+    # y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
     alpha = 0
     beta = 0
-    lambda_range = [1000, 100, 10, 1, 0.1, 0.001, 0.000001, 0.00000001, 0.00000000001]
-
-    max_iter = 500
-    max_cyclic_iter = 5
-    tol = 1e-8
+    lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
+    max_iter = 100
+    max_cyclic_iter = 3
+    tol = 1e-4
     sparsity_factor = 0
 
-    d_raw_, bias_r_, bias_f_, a_f_, q_f_, lambda_f_, ll_f_, conv_flag_ = \
-        gc_extraction(y, f, p=p, n_eigenmodes=n_eigenmodes, ROIs='just_full_model', alpha=alpha,
-                      beta=beta,
-                      lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
-                      sparsity_factor=sparsity_factor)
-
-    fig, ax = plt.subplots()
-    ax.plot(ll_f_)
-    fig.show()
-
-
-
+    with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
+    with open('f_.obj', 'rb') as fp: f = pickle.load(fp)
+    import scipy.io
+    scipy.io.savemat('y.mat', {'y': y})
+    scipy.io.savemat('f.mat', {'f': f})
+    _, m = y.shape
+    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, ll_f, conv_flag = _gc_extraction(y.T, f, r=np.eye(m), p=p,
+                   n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
+                   lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                   tol=tol, sparsity_factor=sparsity_factor)
 
 
 
 
-
-
-
-
-
-
-
+    # with open('y_' + '.obj', 'wb') as fh:
+    #     pickle.dump(y, fh)
+    #
+    # with open('f_' + '.obj', 'wb') as fh_:
+    #         pickle.dump(f, fh_)
 
 
 

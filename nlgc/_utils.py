@@ -203,6 +203,54 @@ def bias(q, a, x_bar, idx_src):
     # import ipdb; ipdb.set_trace()
     return ldot.T@np.linalg.solve(ldotdot, ldot)
 
+def old_bias(model, reg_idx, n_eigenmodes=1):
+    """Computes the bias in the deviance
+
+    Parameters
+    ----------
+    q:  ndarray of shape (n_sources*mo, n_sources*mo)
+    a:  ndarray of shape (n_sources*mo, n_sources*order*mo)
+    x_bar:  ndarray of shape (t, n_sources*mo)
+    idx_src: source index
+
+    Returns
+    -------
+    bias
+    """
+
+    a = model._ravel_a(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm  # what's this??
+
+    bias = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]  # in python slicing returns 1d array, so transpose is meaningless.
+
+        xi = x_bar[p:, idx_src]   # p:t, -> p:, pythonic usage
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd = np.diag(q)
+
+        # gradient of log - likelihood
+        ldot = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
+
+        # hessian of log - likelihood
+        ldotdot = -1 / qd[idx_src] * (cx.T @ cx)
+
+        bias += ldot.T@np.linalg.solve(ldotdot, ldot)
+    # import ipdb; ipdb.set_trace()
+
+    return bias
+
+
 
 def test_bias():
     q = np.array([[2, 0], [0, 6]])
@@ -244,6 +292,41 @@ def debiased_dev(xr_, xf_, ar, af, qr, qf, t, idx_reg, mo=1):
 
 def my_debiased_dev(fullmodel, reducedmodel, y, idx_reg, mo=1):
     """Computes debiased deviance (proloy@umd.edu)
+
+    Parameters
+    ----------
+    xr_: (reduced model) ndarray of shape (t, n_sources*order*mo)
+    xf_: (full model) ndarray of shape (t, n_sources*order*mo)
+    ar:  (reduced model) ndarray of shape (n_sources*mo, n_sources*order*mo)
+    af:  (full model) ndarray of shape (n_sources*mo, n_sources*order*mo)
+    qr:  (reduced model) ndarray of shape (n_sources*mo, n_sources*mo)
+    qf:  (full model) ndarray of shape (n_sources*mo, n_sources*mo)
+    t:   number of time samples
+    idx_reg: region index
+    mo:   number of eigen modes
+
+    Returns
+    -------
+    deviance : debiased deviance
+
+    """
+    t = y.shape[1]
+    xs = None
+    deviance = fullmodel.ll - reducedmodel.ll
+    for idx_src in range(idx_reg * mo, (1 + idx_reg) * mo):
+        emp_biases = []
+        qs = []
+        for model in (fullmodel, reducedmodel):
+            y_, a_, a_upper, f_, q_, q_upper, _, r, xs, m, n, p, use_lapack = \
+                model._prep_for_sskf(y, *model._parameters[:4])
+            x_, s_, b, s_hat = sskf(y_, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            emp_biases.append(mybias(idx_reg, q_upper, a_upper, x_, s_, b, m, p))
+        deviance += emp_biases[0] - emp_biases[1]
+
+    return deviance
+
+def old_deviance(fullmodel, reducedmodel, y, idx_reg, mo=1):
+    """Computes bias & deviance (behrad@umd.edu)
 
     Parameters
     ----------
