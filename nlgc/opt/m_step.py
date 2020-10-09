@@ -56,7 +56,7 @@ def calculate_ss(x_bar, s_bar, b, m, p):
 
 
 # @njit(cache=True)
-def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None):
+def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, beta=0.1):
     """Gradient descent to learn a, state-transition matrix
 
     Parameters
@@ -81,6 +81,7 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
     a : ndarray of shape (n_sources, n_sources*order)
     changes : list of floats
     """
+    eps = np.finfo(s1.dtype).eps
     q = np.diag(q)
     qinv = 1 / q
     qinv = np.expand_dims(qinv, -1)
@@ -94,16 +95,19 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
 
     changes = np.zeros(max_iter+1)
     changes[0] = 1
+    f_old = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, a.dot(s2) * qinv).sum()
+    temp1 = a.dot(s2)
     # grad = np.zeros_like(a)
     for i in range(max_iter):
         if changes[i] < tol:
             break
         _a[:] = a
         # Calculate gradient
-        grad = np.dot(a, s2)
+        grad = temp1
         grad -= s1
         grad *= qinv
 
+        # import ipdb; ipdb.set_trace()
         if zeroed_index is not None:
             grad[zeroed_index] = 0.0
 
@@ -114,30 +118,35 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
         num = (grad * grad).sum()
         tau = 0.5 * num / den
 
-        # Forward step
-        temp[:] = a
-        temp -= tau * grad
+        while True:
+            # Forward step
+            temp[:] = _a
+            temp -= tau * grad
 
-        # Backward (proximal) step
-        a = shrink(temp, lambda2 * tau)
+            # Backward (proximal) step
+            a = shrink(temp, lambda2 * tau)
 
-        # #************* make the self history = 0***********
-        # a.flat[::(2*m+1)] = 0.0
-        # a.flat[m::(2*m+1)] = 0.0
-        # # ***************************************************
-        # a = np.fabs(temp, out=a)
-        # a -= lambda2 * tau
-        # a = np.clip(a, a_min=0, a_max=None, out=a)
-        # a = np.copysign(a, temp, out=a)
+            #************* make the self history = 0***********
+            # a.flat[::(2*m+1)] = 0.0
+            # a.flat[m::(2*m+1)] = 0.0
+            # ***************************************************
 
-        # f_ = (np.diag(a.dot(s2.dot(a.T)-2*s1.T)) * qinv.ravel()).sum()
-        # fs.append(f_)
+            if zeroed_index is not None:
+                a[zeroed_index] = 0.0
 
-        if zeroed_index is not None:
-            a[zeroed_index] = 0.0
+            temp1 = a.dot(s2)
+            f_new = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, temp1 * qinv).sum()
+            diff = (a - _a)
+            f_new_upper = f_old + (grad * diff).sum() + (diff ** 2).sum() / (2 * tau)
+            # print(f_new, f_new_upper)
+            if f_new < f_new_upper or tau < eps:
+                break
+            else:
+                tau /= 2
 
-        num = np.sum((_a - a) ** 2)
+        num = np.sum(diff ** 2)
         den = np.sum(_a ** 2)
+        f_old = f_new
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
     return a, changes
 
@@ -411,6 +420,7 @@ def test_solve_for_a_and_q(t=1000):
     a_[:] = 0 * np.reshape(np.swapaxes(a, 0, 1), (m, m * p))
     q_ = 0.1 * q.copy()
     for _ in range(20):
-        a_, changes = solve_for_a(q_, s1, s2, a_, lambda2=0.1, max_iter=1000, tol=0.01)
-        q_ = solve_for_q(q_, s3, s1, a_, lambda2=0.1)
+        a_, changes = solve_for_a(q_, s1, s2, a_, lambda2=0.01, max_iter=1000, tol=1e-8)
+        q_ = solve_for_q(q_, s3, s1, s2, a_, lambda2=0.01)
+        # ipdb.set_trace()
     ipdb.set_trace()

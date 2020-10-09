@@ -586,9 +586,9 @@ class NeuraLVARCV_(NeuraLVAR):
         initargs = (info_y, info_f, info_r, info_cv, cvsplits, lambda_range,
                     max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
-        # out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
         print('Starting cross-validation')
-        Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
+        out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
+        # Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
         print('Done cross-validation')
 
         self.cv_lambdas = lambda_range
