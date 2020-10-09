@@ -128,7 +128,7 @@ def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=
 def expand_roi_indices_as_tup(reg_idx, emod):
     return tuple(range(reg_idx * emod, reg_idx * emod + emod))
 
-_default_lambda_range = [5e1, 2e1, 1e1, 5e0, 2e0, 1e0, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2]
+_default_lambda_range = [5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,]
 
 def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
@@ -163,6 +163,8 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
         lambda_range = _default_lambda_range
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
+    with open('model_f_depth=0.0.pkl', 'wb') as fp:
+        pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
 
@@ -188,7 +190,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
         target = expand_roi_indices_as_tup(j, n_eigenmodes)
         source = expand_roi_indices_as_tup(i, n_eigenmodes)
-        if np.sum(sparsity[target, source]) < sparsity_factor * np.max(np.abs(a_f[:, target, target])):
+        if np.sum(sparsity[target, source]) <= sparsity_factor * np.max(np.abs(a_f[:, target, target])):
             continue
 
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
