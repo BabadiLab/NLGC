@@ -1,11 +1,5 @@
-import cProfile
-import io
-import pstats
-
 import numpy as np
-from matplotlib import pyplot as plt
 from scipy import linalg
-from numba import jit
 
 
 def sskf(y, a, f, q, r, xs=None, use_lapack=True):
@@ -70,8 +64,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         (l, low) = linalg.cho_factor(_s, lower=True, check_finite=False)
         b = linalg.cho_solve((l, low), temp, check_finite=False)
     except np.linalg.LinAlgError:
-        # b, *rest = linalg.lstsq(_s, temp, check_finite=False)
-        b = linalg.lstsq(_s, temp, check_finite=False)
+
+        b, *rest = linalg.lstsq(_s, temp, check_finite=False)
 
     b = b.T  # Smoother Gain
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
@@ -145,6 +139,12 @@ def align_cast(args, use_lapack):
 
 
 def test_sskf(t=1000):
+    import cProfile
+    import io
+    import pstats
+    from matplotlib import pyplot as plt
+
+    
     # n, m = 155, 6*2*68
     n, m = 3, 3
     q = np.eye(m)
