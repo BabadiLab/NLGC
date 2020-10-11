@@ -24,8 +24,8 @@ if __name__ == "__main__":
 
     # filehandler = open('o0.obj', 'rb')
     # obj1 = pickle.load(filehandler)
-    order = 1
-    p1 = 1
+    order = 4
+    p1 = 4
     n_eigenmodes = 2
     n_segments = 1
     max_iter = 100
