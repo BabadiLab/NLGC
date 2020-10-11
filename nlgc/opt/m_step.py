@@ -4,8 +4,9 @@ from matplotlib import pyplot as plt
 from scipy import linalg
 from numba import jit, njit, float32, float64, vectorize
 
-
-# (x_, s_, b)
+np.seterr(all='warn')
+import warnings
+warnings.filterwarnings('error')
 
 
 def calculate_ss(x_bar, s_bar, b, m, p):
@@ -56,7 +57,7 @@ def calculate_ss(x_bar, s_bar, b, m, p):
 
 
 # @njit(cache=True)
-def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, beta=0.1):
+def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None,):
     """Gradient descent to learn a, state-transition matrix
 
     Parameters
@@ -86,20 +87,25 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
     qinv = 1 / q
     qinv = np.expand_dims(qinv, -1)
     # max step size:
-    # h_norm = qinv.max()
-    # h_norm *= np.linalg.eigvalsh(s2).max()
-    # tau = 0.99 / h_norm
+    h_norm = qinv.max()
+    h_norm *= np.linalg.eigvalsh(s2).max()
+    tau_max = 0.99 / h_norm
 
     _a = np.empty_like(a)
+    temp = np.empty_like(a)
     m = a.shape[0]
+    p = a.shape[1] // m
 
     changes = np.zeros(max_iter+1)
+    fs = np.zeros(max_iter+1)
     changes[0] = 1
+    num = 1
     f_old = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, a.dot(s2) * qinv).sum()
+    fs[0] = f_old
     temp1 = a.dot(s2)
     # grad = np.zeros_like(a)
     for i in range(max_iter):
-        if changes[i] < tol:
+        if changes[i] < tol or num == 0:
             break
         _a[:] = a
         # Calculate gradient
@@ -107,16 +113,23 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
         grad -= s1
         grad *= qinv
 
-        # import ipdb; ipdb.set_trace()
+        # #************* make the self history = 0 from lag p1***********
+        for k in range(p1, p):
+            grad.flat[k * m::(p * m + 1)] = 0.0
+        # # *************************************************************
         if zeroed_index is not None:
             grad[zeroed_index] = 0.0
 
         # Find opt step-size
-        # tau = 0.5 * (grad * grad).sum() / (np.diag(grad.dot(s2.dot(grad.T))) * qinv.ravel()).sum()
-        temp = grad.dot(s2.T)
-        den = ((temp * grad).sum(axis=1) * qinv.ravel()).sum()
-        num = (grad * grad).sum()
-        tau = 0.5 * num / den
+        try:
+            # tau = 0.5 * (grad * grad).sum() / (np.diag(grad.dot(s2.dot(grad.T))) * qinv.ravel()).sum()
+            temp2 = grad.dot(s2.T)
+            den = ((temp2 * grad).sum(axis=1) * qinv.ravel()).sum()
+            num = (grad * grad).sum()
+            tau = 0.5 * num / den
+            tau = max(tau, tau_max)
+        except Warning:
+            raise RuntimeError(f'Q possibly contains negative value {q.min()}')
 
         while True:
             # Forward step
@@ -126,11 +139,10 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
             # Backward (proximal) step
             a = shrink(temp, lambda2 * tau)
 
-            #************* make the self history = 0***********
-            # a.flat[::(2*m+1)] = 0.0
-            # a.flat[m::(2*m+1)] = 0.0
-            # ***************************************************
-
+            # #************* make the self history = 0 from lag p1***********
+            for k in range(p1, p):
+                a.flat[k * m::(p * m + 1)] = 0.0
+            # # *************************************************************
             if zeroed_index is not None:
                 a[zeroed_index] = 0.0
 
@@ -139,7 +151,7 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
             diff = (a - _a)
             f_new_upper = f_old + (grad * diff).sum() + (diff ** 2).sum() / (2 * tau)
             # print(f_new, f_new_upper)
-            if f_new < f_new_upper or tau < eps:
+            if f_new < f_new_upper or tau / tau_max < 1e-4:
                 break
             else:
                 tau /= 2
@@ -148,6 +160,9 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
         den = np.sum(_a ** 2)
         f_old = f_new
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
+        fs[i+1] = f_old
+    print(f"grad max: {grad.max()}, grad min: {grad.min()}, lambda:{lambda2}")
+    print(f"starting f {fs[0]}, closing f {f_old}")
     return a, changes
 
 

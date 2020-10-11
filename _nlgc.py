@@ -130,7 +130,7 @@ def expand_roi_indices_as_tup(reg_idx, emod):
 
 _default_lambda_range = [5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,]
 
-def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
+def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
                   tol=1e-3, sparsity_factor=0.1, cv=5):
 
@@ -145,20 +145,20 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
 
-    finv = linalg.pinv(f.T.dot(f) + 1/m).dot(f.T)
-    x_est = finv.dot(y)
+    sol = linalg.lstsq(f, y)
+    x_est = sol[0]
     x_ = np.vstack(tuple([x_est[:, p-i:-i] for i in range(1,p+1)]))
     s1 = x_est[:, p:].dot(x_.T) / x_.shape[-1]
     s2 = x_.dot(x_.T) / x_.shape[-1]
-    lambda2 = s1.max() / 5
-    q_init = np.eye(m)
+    q_init = 0.001 * np.eye(m)
+    lambda2 = s1.max() / (5 * 0.001)
     a_init = np.zeros_like(s1)
     from nlgc.opt.m_step import solve_for_a, solve_for_q
-    a_init, _ = solve_for_a(q_init, s1, s2, a_init, lambda2)
+    a_init, _ = solve_for_a(q_init, s1, s2, a_init, p1, lambda2)
 
     a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
 
-    model_f = NeuraLVARCV_(p, 10, cv, n_jobs, use_lapack=True)
+    model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=True)
     if lambda_range is None:
         lambda_range = _default_lambda_range
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
@@ -190,13 +190,13 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
 
         target = expand_roi_indices_as_tup(j, n_eigenmodes)
         source = expand_roi_indices_as_tup(i, n_eigenmodes)
-        if np.sum(sparsity[target, source]) <= sparsity_factor * np.max(np.abs(a_f[:, target, target])):
+        if sparsity[target, source].sum() <= sparsity_factor * sparsity[target, target].sum():
             continue
 
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
-        model_r = NeuraLVAR(p, use_lapack=True)
+        model_r = NeuraLVAR(p, p1, use_lapack=True)
         model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
                     beta=beta, **kwargs)
         print(model_r._lls)
@@ -267,7 +267,7 @@ class NLGC:
         pass
 
 
-def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
+def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1,
                   cv=5, label_names=None, label_vertidx=None):
     ny, nnx = gain.shape
@@ -287,8 +287,8 @@ def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n
     for n in range(0, n_segments):
         print('Segment: ', n+1)
         d_raw_, bias_r_, bias_f_, a_f_, q_f_, lambda_f_, ll_f_, conv_flag_ = \
-            _gc_extraction(M[:, n * tt: (n + 1) * tt], gain, r, p=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs, alpha=alpha,
-                           beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
+            _gc_extraction(M[:, n * tt: (n + 1) * tt], gain, r, p=p, p1=p1, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
+                           alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
                            max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
 
         d_raw[n] = d_raw_
@@ -307,7 +307,8 @@ def _nlgc_map_opt(name, M, gain, r, p, n_eigenmodes=2, ROIs='just_full_model', n
     return nlgc_obj
 
 
-def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=0, beta=0, ROIs_names='just_full_model',
+def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
+        ROIs_names='just_full_model',
         n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
         max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
     _check_reference(evoked)
@@ -368,7 +369,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, p, n_eigenmodes=2, alpha=
     r = 1
     label_names = [label.name for label in labels]
 
-    out_obj = _nlgc_map_opt(name, M, G, r, p, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
+    out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                             sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
