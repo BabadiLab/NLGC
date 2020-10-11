@@ -3,9 +3,9 @@ import re
 import os
 from multiprocessing import shared_memory, current_process
 from itertools import product
+import warnings
 
 import numpy as np
-from scipy import linalg
 from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
@@ -15,7 +15,7 @@ from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll, 
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
-import ipdb
+
 
 
 class NeuraLVAR:
@@ -40,7 +40,7 @@ class NeuraLVAR:
     _zeroed_index = None
     restriction = None
 
-    def __init__(self, order, copy=True, standardize=False, normalize=False, use_lapack=True):
+    def __init__(self, order, self_history=None, copy=True, standardize=False, normalize=False, use_lapack=True):
         if standardize is not False and normalize is not False:
             raise ValueError(f"both standardize={standardize} and normalize={normalize} cannot be specified")
         elif standardize:
@@ -54,6 +54,7 @@ class NeuraLVAR:
         self._preprocessing = _preprocessing
         self._copy = copy
         self._order = order
+        self._self_histoty = order if self_history is None else self_history
         self._use_lapack = use_lapack
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
@@ -94,8 +95,10 @@ class NeuraLVAR:
         non-zero alpha, beta values imposes Gamma(alpha*n/2 - 1, beta*n) prior on q's.
         This equivalent to alpha*n - 2 additional observations that sum to beta*n.
         """
+        warnings.filterwarnings('always')
         y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack = \
             self._prep_for_sskf(y, a_init, f, q_init, r, xs)
+        p1 = self._self_histoty
 
         if self.restriction is not None:
             i_s, j_s = re.split(r'->', self.restriction)
@@ -126,15 +129,19 @@ class NeuraLVAR:
                 rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
                 if np.abs(rel_change) < rel_tol:
                     break
+                print(f"{i}: rel change:{np.abs(rel_change)}")
 
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
             beta = 2 * beta / t
             alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
-                                               zeroed_index=zeroed_index)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+                if q_upper.min() < 0:
+                    warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
+                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000, tol=1e-4,
+                                               zeroed_index=zeroed_index)
+                print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
 
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_
@@ -472,11 +479,12 @@ class NeuraLVARCV_(NeuraLVAR):
     cv_lambdas = None
     mse_path = None
 
-    def __init__(self, order, max_n_mus, cv, n_jobs, copy=True, standardize=False, normalize=False, use_lapack=True):
+    def __init__(self, order, self_history, max_n_mus, cv, n_jobs, copy=True, standardize=False, normalize=False,
+            use_lapack=True):
         self.max_n_mus = max_n_mus
         self.cv = cv
         self.n_jobs = n_jobs
-        NeuraLVAR.__init__(self, order, copy, standardize, normalize, use_lapack)
+        NeuraLVAR.__init__(self, order, self_history, copy, standardize, normalize, use_lapack)
 
     def _cvfit(self, split, info_y, info_f, info_r, info_cv, splits, lambda_range, max_iter=100, max_cyclic_iter=2,
                a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):
@@ -518,16 +526,20 @@ class NeuraLVARCV_(NeuraLVAR):
         y_train, y_test = y[:, train], y[:, test]
         xs = None
         logger.debug(f"{current_process().name} successfully split the data")
+        lambda_range = lambda_range * np.sqrt(y.shape[-1])
         val = 0
         for i, lambda2 in enumerate(lambda_range):
+            lambda2 = lambda2 / np.sqrt(y_train.shape[-1])
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
             a_, q_upper, lls, _, _, _, xs, _ = \
-                self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter,
+                          max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
             # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
-            # a_init = a_.copy()
+            a_init = a_.copy()
+            q_init = q_upper.copy()
             cv[split, i] = cross_ll
             val += cross_ll
 
@@ -566,6 +578,9 @@ class NeuraLVARCV_(NeuraLVAR):
 
         if lambda_range is None or lambda_range == 'auto':
             raise NotImplementedError("Try specifying a pre-determined range")
+        else:
+            if not isinstance(lambda_range, np.ndarray):
+                lambda_range = np.asarray(lambda_range)
 
         # do cvsplits
         if isinstance(self.cv, int):
@@ -587,8 +602,8 @@ class NeuraLVARCV_(NeuraLVAR):
                     max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
         print('Starting cross-validation')
-        out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
-        # Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
+        # out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
+        Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
         print('Done cross-validation')
 
         self.cv_lambdas = lambda_range
@@ -599,9 +614,10 @@ class NeuraLVARCV_(NeuraLVAR):
             shm.unlink()
 
         # Find best mu
-        normalized_cross_lls = self.mse_path - self.mse_path.max()
+        # normalized_cross_lls = self.mse_path - self.mse_path.max()
         # ipdb.set_trace()
-        index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
+        # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
+        index = self.mse_path.mean(axis=0).argmax()
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')
 
