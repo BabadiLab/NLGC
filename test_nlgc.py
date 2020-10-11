@@ -5,6 +5,9 @@ from _nlgc import *
 import ipdb
 from codetiming import Timer
 
+import warnings
+warnings.filterwarnings('error')
+
 ## Change this folder name to "'your_mounted_drive'\behrad\Aging" before running the script
 # behrad_root = "G:\\My Drive\\behrad\\Aging"
 behrad_root = "/Users/behrad/Google Drive/behrad/Aging"

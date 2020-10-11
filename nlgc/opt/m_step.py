@@ -6,7 +6,6 @@ from numba import jit, njit, float32, float64, vectorize
 
 np.seterr(all='warn')
 import warnings
-warnings.filterwarnings('error')
 
 
 def calculate_ss(x_bar, s_bar, b, m, p):
@@ -82,6 +81,7 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
     a : ndarray of shape (n_sources, n_sources*order)
     changes : list of floats
     """
+    warnings.filterwarnings('error')
     eps = np.finfo(s1.dtype).eps
     q = np.diag(q)
     qinv = 1 / q
