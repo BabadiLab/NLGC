@@ -51,6 +51,9 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         assert x_.flags['C_CONTIGUOUS']
 
     try:
+        ################################################
+        # q += np.eye(len(q))*1e-7
+        ################################################
         _s = linalg.solve_discrete_are(a.T, f.T, q, r)
     except np.linalg.LinAlgError:
         import ipdb;
@@ -67,12 +70,13 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         (l, low) = linalg.cho_factor(_s, lower=True, check_finite=False)
         b = linalg.cho_solve((l, low), temp, check_finite=False)
     except np.linalg.LinAlgError:
+        # b, *rest = linalg.lstsq(_s, temp, check_finite=False)
         b = linalg.lstsq(_s, temp, check_finite=False)
 
     b = b.T  # Smoother Gain
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
-    # s_ = linalg.solve_discrete_lyapunov(b, s_hat)
-    s_ = s + b.dot(s - _s).dot(b.T)     # Approximation from Elvira's paper
+    s_ = linalg.solve_discrete_lyapunov(b, s_hat)
+    # s_ = s + b.dot(s - _s).dot(b.T)     # Approximation from Elvira's paper
 
     f, a, k, b = align_cast((f, a, k, b), use_lapack)
 

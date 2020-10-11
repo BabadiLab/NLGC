@@ -112,6 +112,8 @@ class NeuraLVAR:
             zeroed_index = (x_index, y_index)
         else:
             zeroed_index = None
+        # import ipdb
+        # ipdb.set_trace()
 
         lls = []
         for i in range(max_iter):
@@ -128,14 +130,21 @@ class NeuraLVAR:
                     break
 
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+            # if np.abs(s1).max() > 1e10 or np.abs(s2).max() > 1e10 :
+            #     import ipdb
+            #     ipdb.set_trace()
             beta = 2 * beta / t
             alpha = 2 * (alpha + 1) / t
 
             for _ in range(max_cyclic_iter):
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
-                                               zeroed_index=zeroed_index)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
 
+                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
+                                               zeroed_index=zeroed_index)
+            # print(f"a_max:{a_upper.max()}, q_max:{q_upper.max()}")
+            # if a_upper.max() > 1e5:
+            #     import ipdb
+            #     ipdb.set_trace()
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_
 
@@ -380,7 +389,6 @@ class NeuraLVARCV(NeuraLVAR):
             zeroed_index = (x_index, y_index)
         else:
             zeroed_index = None
-
         lls = []
         for i in range(max_iter):
             a_[:m] = a_upper
@@ -404,7 +412,10 @@ class NeuraLVARCV(NeuraLVAR):
                                                   tol=rel_tol, zeroed_index=zeroed_index,
                                                   max_n_lambda2=self.max_n_mus, cv=self.cv)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
-
+            # print(f'max_a: {a_upper.max()}, max_q: {q_upper.max()}')
+            # if a_upper.max() >= 1e10:
+            #     import ipdb
+            #     ipdb.set_trace()
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_, lambda2
 
@@ -587,8 +598,8 @@ class NeuraLVARCV_(NeuraLVAR):
                     max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
         print('Starting cross-validation')
-        out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
-        # Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
+        # out = [self._cvfit(i, *initargs) for i in range(len(cvsplits))]
+        Parallel(n_jobs=self.n_jobs, verbose=10)(delayed(self._cvfit)(i, *initargs) for i in range(len(cvsplits)))
         print('Done cross-validation')
 
         self.cv_lambdas = lambda_range

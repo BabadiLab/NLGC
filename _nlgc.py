@@ -156,7 +156,7 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     a_init = np.zeros_like(s1)
     from nlgc.opt.m_step import solve_for_a, solve_for_q
     a_init, _ = solve_for_a(q_init, s1, s2, a_init, lambda2)
-
+    # ipdb.set_trace()
     a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
 
     model_f = NeuraLVARCV_(p, 10, cv, n_jobs, use_lapack=True)
@@ -167,8 +167,8 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
     with open('model_f_depth=0.0.pkl', 'wb') as fp:
         pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
-    # bias_f = model_f.compute_bias(y)
-    bias_f = 0
+    bias_f = model_f.compute_bias(y)
+    # bias_f = 0
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
     conv_flag = np.zeros((nx, nx), dtype=np.bool_)
@@ -203,11 +203,11 @@ def _gc_extraction(y, f, r, p, n_eigenmodes=2, ROIs='just_full_model', alpha=0, 
                     beta=beta, **kwargs)
         # print(model_r._lls)
 
-        # bias_r[j, i] = model_r.compute_bias(y)
-        bias_r[j, i] = old_bias(model_r, j, n_eigenmodes=n_eigenmodes)-old_bias(model_f, j, n_eigenmodes=n_eigenmodes)
+        bias_r[j, i] = model_r.compute_bias(y)
+        # bias_r[j, i] = old_bias(model_r, j, n_eigenmodes=n_eigenmodes)-old_bias(model_f, j, n_eigenmodes=n_eigenmodes)
 
-        # dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
-        dev_raw[j, i] = 2*(old_log_likelihood(model_f, j, n_eigenmodes=n_eigenmodes)-old_log_likelihood(model_r, j, n_eigenmodes=n_eigenmodes))
+        dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
+        # dev_raw[j, i] = 2*(old_log_likelihood(model_f, j, n_eigenmodes=n_eigenmodes)-old_log_likelihood(model_r, j, n_eigenmodes=n_eigenmodes))
 
         # import ipdb;ipdb.set_trace()
         conv_flag[j, i] = len(model_r._lls) == max_iter

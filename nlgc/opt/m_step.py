@@ -84,11 +84,16 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
     eps = np.finfo(s1.dtype).eps
     q = np.diag(q)
     qinv = 1 / q
+    ############################################################################
+    # qinv = np.zeros_like(q)
+    # qinv[q <= 0] = 0
+    # qinv[q > 0] = 1 / q[q > 0]
+    ############################################################################
     qinv = np.expand_dims(qinv, -1)
     # max step size:
-    # h_norm = qinv.max()
-    # h_norm *= np.linalg.eigvalsh(s2).max()
-    # tau = 0.99 / h_norm
+    h_norm = qinv.max()
+    h_norm *= np.linalg.eigvalsh(s2).max()
+    tau_max = 0.99 / h_norm
 
     _a = np.empty_like(a)
     m = a.shape[0]
@@ -117,10 +122,12 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
         den = ((temp * grad).sum(axis=1) * qinv.ravel()).sum()
         num = (grad * grad).sum()
         tau = 0.5 * num / den
+        tau = tau_max if np.isinf(den) else max(tau_max, tau)
+        # print(f"tau:{tau}, den:{den}, qinv:{np.max(qinv)}")
 
         while True:
             # Forward step
-            temp[:] = _a
+            temp = _a.copy()
             temp -= tau * grad
 
             # Backward (proximal) step
@@ -143,11 +150,15 @@ def solve_for_a(q, s1, s2, a, lambda2, max_iter=5000, tol=1e-3, zeroed_index=Non
                 break
             else:
                 tau /= 2
+        # if a.max() > 1:
+        #     import ipdb;
+        #     ipdb.set_trace()
 
         num = np.sum(diff ** 2)
         den = np.sum(_a ** 2)
         f_old = f_new
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
+
     return a, changes
 
 
@@ -259,6 +270,11 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     q_ += beta
     q_ /= (1 + alpha)
     q[diag_indices] = q_
+    # if q.min() < 0:
+    #     import ipdb;
+    #     ipdb.set_trace()
+    # q = np.absolute(q)
+    # q[q < 0] = 0
     return q
 
 
