@@ -2,6 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
+# import warnings
+# warnings.filterwarnings('ignore')
+
 def visualize_con(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={}, cbarlabel="", cmap='seismic'):
     lh = []
     rh = []

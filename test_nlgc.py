@@ -6,7 +6,7 @@ import ipdb
 from codetiming import Timer
 
 import warnings
-warnings.filterwarnings('error')
+warnings.filterwarnings('ignore')
 
 ## Change this folder name to "'your_mounted_drive'\behrad\Aging" before running the script
 # behrad_root = "G:\\My Drive\\behrad\\Aging"
@@ -39,21 +39,29 @@ if __name__ == "__main__":
     ROIs_names = ['rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis', 'parstriangularis', 'superiortemporal',
                   'middletemporal', 'transversetemporal']
 
-    # Inv-Gamma(alpha * 600, beta * 600)
-
-    epsilon = 0.02
 
     alpha = 0
     beta = 0
-    lambda_range = [1e1, 5, 2, 1, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2,]
-    lambda_range = [1,]
+    lambda_range = [1e1, 5, 2, 1, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3]
+    lambda_range = [2e-1, 1e-1, 5e-2, 2e-2, 1e-2]
+    lambda_range = [0.235, 0.23, 0.225] #0.23 is the best so far!
+    lambda_range = [0.2275, 0.2250, 0.2225] #0.225 is the best so far!
+
+
     out = nlgc_map('test', evoked[0], forward, er_cov, labels, order=order, self_history=p1,
                    n_eigenmodes=n_eigenmodes, alpha=alpha, beta=beta, ROIs_names=ROIs_names, n_segments=n_segments,
-                   lambda_range=lambda_range, max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol,
+                   lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                    sparsity_factor=sparsity_factor, depth=0.0)
+
 
 
     from _plot_utils import visualize_con
     d = out.compute_debiased_dev()[0]
     d[d<0] = 0
     im, cbar = visualize_con(d, out._labels, n_eigenmodes=1)
+
+
+    # with open('p43.pkl', 'wb') as fp:
+    #     pickle.dump(out, fp)
+    # with open('p44.pkl', 'rb') as fp:
+    #     out=pickle.load(fp)

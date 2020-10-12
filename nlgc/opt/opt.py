@@ -147,9 +147,6 @@ class NeuraLVAR:
                 a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000, tol=1e-4,
                                                zeroed_index=zeroed_index)
                 print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
-
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, lambda2=lambda2, max_iter=5000, tol=rel_tol,
-                                               zeroed_index=zeroed_index)
             # print(f"a_max:{a_upper.max()}, q_max:{q_upper.max()}")
             # if a_upper.max() > 1e5:
             #     import ipdb

@@ -166,6 +166,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         lambda_range = _default_lambda_range
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
+    # ipdb.set_trace()
     with open('model_f_depth=0.0.pkl', 'wb') as fp:
         pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
@@ -187,7 +188,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
 
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
-    # ipdb.set_trace()
+    ipdb.set_trace()
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
@@ -386,9 +387,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     G_ = G[:, G_idx]
     ROIs_idx = list(range(0, len(ROIs_idx)))
 
-
-
-    out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
+    out_obj = _nlgc_map_opt(name, M, G_, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                             sparsity_factor=sparsity_factor, cv=cv, label_names=label_names_,
