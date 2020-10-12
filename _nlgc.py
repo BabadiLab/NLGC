@@ -20,6 +20,8 @@ import pickle
 from codetiming import Timer
 from multiprocessing import cpu_count
 
+import warnings
+
 plt.ion()
 
 def truncatedsvd(a, n_components=2):
@@ -145,28 +147,39 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
 
-    sol = linalg.lstsq(f, y)
-    x_est = sol[0]
-    x_ = np.vstack(tuple([x_est[:, p-i:-i] for i in range(1,p+1)]))
-    s1 = x_est[:, p:].dot(x_.T) / x_.shape[-1]
-    s2 = x_.dot(x_.T) / x_.shape[-1]
-    q_init = 0.001 * np.eye(m)
-    lambda2 = s1.max() / (5 * 0.001)
-    a_init = np.zeros_like(s1)
-    from nlgc.opt.m_step import solve_for_a, solve_for_q
-    a_init, _ = solve_for_a(q_init, s1, s2, a_init, p1, lambda2)
-
-    a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
-
-    model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=True)
     if lambda_range is None:
         lambda_range = _default_lambda_range
+
+    q_init = 0.1 * np.eye(m)
+    dummy_model_f = NeuraLVAR(p, p1, use_lapack=True)
+    dummy_model_f.fit(y, f, r * np.eye(n), lambda_range[0], a_init=None, q_init=q_init, restriction=None, alpha=alpha,
+                      beta=beta, **kwargs)
+    a_init = dummy_model_f._parameters[0]
+    q_init = dummy_model_f._parameters[2]
+
+    # sol = linalg.lstsq(f, y)
+    # x_est = sol[0]
+    # x_ = np.vstack(tuple([x_est[:, p-i:-i] for i in range(1,p+1)]))
+    # s1 = x_est[:, p:].dot(x_.T) / x_.shape[-1]
+    # s2 = x_.dot(x_.T) / x_.shape[-1]
+    # lambda2 = s1.max() / (5 * 0.1)
+    # a_init = np.zeros_like(s1)
+    # from nlgc.opt.m_step import solve_for_a, solve_for_q
+    # a_init, _ = solve_for_a(q_init, s1, s2, a_init, p1, lambda2)
+    #
+    # a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
+    warnings.filterwarnings('ignore')
+    ipdb.set_trace()
+
+    model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=True)
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
-                    **kwargs)
+                **kwargs)
     with open('model_f_depth=0.0.pkl', 'wb') as fp:
         pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
+    warnings.filterwarnings('ignore')
+    ipdb.set_trace()
 
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))

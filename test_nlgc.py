@@ -29,7 +29,7 @@ if __name__ == "__main__":
     p1 = 2
     n_eigenmodes = 2
     n_segments = 1
-    max_iter = 100
+    max_iter = 200
     max_cyclic_iter = 1
     tol = 1e-4
     sparsity_factor = 0.00
@@ -55,10 +55,10 @@ if __name__ == "__main__":
     epsilon = 0.02
     alpha = 2 + epsilon
     beta = 1 * (1 + epsilon)
-    lambda_range = [1e1, 5, 2, 1, 5e-1, 2e-1, 1e-1, 5e-2, 2e-2,]
+    lambda_range = [5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2,]
     out = nlgc_map('test', evoked[0], forward, er_cov, labels, order=order, self_history=p1,
-                   n_eigenmodes=n_eigenmodes, alpha=alpha, beta=beta, ROIs_names=None, n_segments=n_segments,
-                   lambda_range=lambda_range, max_iter=100, max_cyclic_iter=max_cyclic_iter, tol=tol,
+                   n_eigenmodes=n_eigenmodes, alpha=alpha, beta=beta, ROIs_names=ROIs_names, n_segments=n_segments,
+                   lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                    sparsity_factor=sparsity_factor, depth=0.0)
 
     # obj_list = []
