@@ -73,7 +73,7 @@ def sample_path_bias(q, a, x_bar, zeroed_index):
     return bias
 
 
-def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
+def mybias(idx_src, q, a, x_bar, s_bar, b, m, p, zeroed_index=None):
     """Computes the bias in the deviance (proloy@umd.edu)
 
     Parameters
@@ -88,50 +88,41 @@ def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
     bias
 
     """
+    warnings.filterwarnings('always')
     _, dtot = a.shape
 
-    n = (x_bar.shape[0] - p)
-
-    #### These just uses means
-    # x_ = x_bar[:, :m]
-    # # compute the following quantities carefully
-    # # s1 = x[2:].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    # s1 = x_[p:].T.dot(x_bar[p - 1:-1]) / n
-    #
-    # # s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    # s2 = x_bar[p - 1:-1].T.dot(x_bar[p - 1:-1]) / n
-    #
-    # # s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p + 1)
-    # s3 = x_[p:].T.dot(x_[p:]) / n
-
     ### These uses the whole distribution.
-    s1, s2, s3 = calculate_ss(x_bar, s_bar, b, m, p)
+    s1, s2, s3, n = calculate_ss(x_bar, s_bar, b, m, p)
 
     ai = a[idx_src]  # in python slicing returns 1d array, so transpose is meaningless.
     qi = q[idx_src, idx_src]
 
-
-    ldot = np.empty((dtot + 1))
-    ldotdot = np.empty((dtot + 1, dtot + 1))
+    ldot = np.empty((dtot))
+    ldotdot = np.empty((dtot, dtot))
 
     temp1 = s2.dot(ai)
     pev = s3[idx_src,idx_src] - 2 * s1[idx_src].dot(ai) +  ai.dot(temp1)  # prediction_error_variance
     temp1 -= s1[idx_src]
 
     # ldot[0, 0] = -t / qd[idx_src] / 2 + 1 / (qd[idx_src] ** 2) / 2 * np.linalg.norm(xi - cx @ ai, ord=2)
-    ldot[0] = (- 1  + pev / qi) / (2 * qi)
-    ldot[1:] = - temp1
-    ldot[1:] /= qi
+    # ldot[0] = (- 1  + pev / qi) / (2 * qi)
+    ldot[:] = - temp1
+    ldot[:] /= qi
 
     # ldotdot[0, 0] = t / (qd[idx_src] ** 2) / 2 - 1 / (qd[idx_src] ** 3) / 2 * np.linalg.norm(xi - cx @ ai, ord=2)
-    ldotdot[0, 0] = (0.5 - pev / qi)
-    ldotdot[0, 1:] = temp1
-    ldotdot[0] /= (qi * qi)
-    ldotdot[1:, 1:] = - s2 / qi
-    ldotdot[1:, 0] = ldotdot[0, 1:]
+    # ldotdot[0, 0] = (0.5 - pev / qi)
+    # ldotdot[0, 1:] = temp1
+    # ldotdot[0] /= (qi * qi)
+    ldotdot[:, :] = - s2 / qi
+    # ldotdot[1:, 0] = ldotdot[0, 1:]
 
-    # print(ldot)
-    # print(ldotdot)
+    if zeroed_index is not None:
+        x_index, y_index = zeroed_index
+        if idx_src in x_index:
+            removed_idx = list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])
+            ldot = np.delete(ldot, removed_idx)
+            ldotdot = np.delete(ldotdot, removed_idx, axis=0)
+            ldotdot = np.delete(ldotdot, removed_idx, axis=1)
 
     try:
         c, low = linalg.cho_factor(-ldotdot)
@@ -146,10 +137,7 @@ def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
         idx = e > 0
         bias = np.sum(temp[idx] ** 2 / e[idx])
         bias *= n
-        # temp = linalg.solve(-ldotdot, ldot, assume_a='sym')
-    # import ipdb; ipdb.set_trace()
-    # import ipdb;
-    # ipdb.set_trace()
+
     return bias
 
 
@@ -203,6 +191,54 @@ def bias(q, a, x_bar, idx_src):
     # import ipdb; ipdb.set_trace()
     return ldot.T@np.linalg.solve(ldotdot, ldot)
 
+def old_bias(model, reg_idx, n_eigenmodes=1):
+    """Computes the bias in the deviance
+
+    Parameters
+    ----------
+    q:  ndarray of shape (n_sources*mo, n_sources*mo)
+    a:  ndarray of shape (n_sources*mo, n_sources*order*mo)
+    x_bar:  ndarray of shape (t, n_sources*mo)
+    idx_src: source index
+
+    Returns
+    -------
+    bias
+    """
+
+    a = model._ravel_a(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm  # what's this??
+
+    bias = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]  # in python slicing returns 1d array, so transpose is meaningless.
+
+        xi = x_bar[p:, idx_src]   # p:t, -> p:, pythonic usage
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd = np.diag(q)
+
+        # gradient of log - likelihood
+        ldot = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
+
+        # hessian of log - likelihood
+        ldotdot = -1 / qd[idx_src] * (cx.T @ cx)
+
+        bias += ldot.T@np.linalg.solve(ldotdot, ldot)
+    # import ipdb; ipdb.set_trace()
+
+    return bias
+
+
 
 def test_bias():
     q = np.array([[2, 0], [0, 6]])
@@ -244,6 +280,41 @@ def debiased_dev(xr_, xf_, ar, af, qr, qf, t, idx_reg, mo=1):
 
 def my_debiased_dev(fullmodel, reducedmodel, y, idx_reg, mo=1):
     """Computes debiased deviance (proloy@umd.edu)
+
+    Parameters
+    ----------
+    xr_: (reduced model) ndarray of shape (t, n_sources*order*mo)
+    xf_: (full model) ndarray of shape (t, n_sources*order*mo)
+    ar:  (reduced model) ndarray of shape (n_sources*mo, n_sources*order*mo)
+    af:  (full model) ndarray of shape (n_sources*mo, n_sources*order*mo)
+    qr:  (reduced model) ndarray of shape (n_sources*mo, n_sources*mo)
+    qf:  (full model) ndarray of shape (n_sources*mo, n_sources*mo)
+    t:   number of time samples
+    idx_reg: region index
+    mo:   number of eigen modes
+
+    Returns
+    -------
+    deviance : debiased deviance
+
+    """
+    t = y.shape[1]
+    xs = None
+    deviance = fullmodel.ll - reducedmodel.ll
+    for idx_src in range(idx_reg * mo, (1 + idx_reg) * mo):
+        emp_biases = []
+        qs = []
+        for model in (fullmodel, reducedmodel):
+            y_, a_, a_upper, f_, q_, q_upper, _, r, xs, m, n, p, use_lapack = \
+                model._prep_for_sskf(y, *model._parameters[:4])
+            x_, s_, b, s_hat = sskf(y_, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            emp_biases.append(mybias(idx_reg, q_upper, a_upper, x_, s_, b, m, p))
+        deviance += emp_biases[0] - emp_biases[1]
+
+    return deviance
+
+def old_deviance(fullmodel, reducedmodel, y, idx_reg, mo=1):
+    """Computes bias & deviance (behrad@umd.edu)
 
     Parameters
     ----------

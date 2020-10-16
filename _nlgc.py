@@ -130,11 +130,12 @@ def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=
 def expand_roi_indices_as_tup(reg_idx, emod):
     return tuple(range(reg_idx * emod, reg_idx * emod + emod))
 
+
 _default_lambda_range = [5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,]
 
 def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
-                  tol=1e-3, sparsity_factor=0.1, cv=5):
+                  tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True):
 
     n, m = f.shape
     nx = m // n_eigenmodes
@@ -146,39 +147,56 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
     # learn the full model
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
+    # n_jobs = 3
 
     if lambda_range is None:
         lambda_range = _default_lambda_range
 
-    q_init = 0.1 * np.eye(m)
-    dummy_model_f = NeuraLVAR(p, p1, use_lapack=True)
-    dummy_model_f.fit(y, f, r * np.eye(n), lambda_range[0], a_init=None, q_init=q_init, restriction=None, alpha=alpha,
-                      beta=beta, **kwargs)
-    a_init = dummy_model_f._parameters[0]
-    q_init = dummy_model_f._parameters[2]
+    e, u = linalg.eigh(f.dot(f.T))
+    temp = u.T.dot(y)
+    c = (temp ** 2).sum(axis=1)
+    from scipy import optimize
+    fun = lambda x:  (c / (1 + x * e)**2).sum() - 1.2 * n * y.shape[1]
+    fprime = lambda x: - 2 * ((c * e) / (1 + x * e)**3).sum()
+
+    if fun(0) > 0:
+        q_val = optimize.newton(fun, 1)
+    else:
+        q_val = 0.0001
+    q_init = q_val * np.eye(m)
+    a_init = None
+
+    # q_init = 1 * np.eye(m)
+    # a_init = None
+    # dummy_model_f = NeuraLVAR(p, p1, use_lapack=use_lapack)
+    # dummy_model_f.fit(y, f, r * np.eye(n), lambda_range[0], a_init=None, q_init=q_init, restriction=None, alpha=alpha,
+    #                   beta=beta, **kwargs)
+    # a_init = dummy_model_f._parameters[0]
+    # q_init = dummy_model_f._parameters[2]
 
     # sol = linalg.lstsq(f, y)
     # x_est = sol[0]
     # x_ = np.vstack(tuple([x_est[:, p-i:-i] for i in range(1,p+1)]))
     # s1 = x_est[:, p:].dot(x_.T) / x_.shape[-1]
     # s2 = x_.dot(x_.T) / x_.shape[-1]
-    # lambda2 = s1.max() / (5 * 0.1)
+    # lambda2 = np.abs(s1).max() / (10 * 1)
     # a_init = np.zeros_like(s1)
     # from nlgc.opt.m_step import solve_for_a, solve_for_q
     # a_init, _ = solve_for_a(q_init, s1, s2, a_init, p1, lambda2)
     #
     # a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
-    warnings.filterwarnings('ignore')
-    ipdb.set_trace()
 
-    model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=True)
+    if len(lambda_range) > 1:
+        model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
+    else:
+        model_f = NeuraLVAR(p, p1, use_lapack=use_lapack)
+        lambda_range = lambda_range[0]
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                 **kwargs)
-    with open('model_f_depth=0.0.pkl', 'wb') as fp:
-        pickle.dump(model_f, fp)
-    # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
+
     warnings.filterwarnings('ignore')
+    model_f.compute_cross_ll(y)
     ipdb.set_trace()
 
     dev_raw = np.zeros((nx, nx))
@@ -197,6 +215,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
 
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
+    bias_r_ = np.zeros((nx, nx))
+    bias_f_ = np.zeros((nx, nx))
+    dev_raw_ = np.zeros((nx, nx))
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
@@ -209,23 +230,38 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
-        model_r = NeuraLVAR(p, p1, use_lapack=True)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
+        model_r = NeuraLVAR(p, p1, use_lapack=use_lapack)
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_init.copy(), restriction=link,
+                    alpha=alpha,
                     beta=beta, **kwargs)
-        print(model_r._lls)
+        # model_r = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
+        # model_r.fit(y, f, r*np.eye(n), lambda_range, a_init=a_init.copy(), q_init=q_init.copy(), restriction=link,
+        #             alpha=alpha,
+        #             beta=beta, **kwargs)
+        # print(model_r._lls)
 
         bias_r[j, i] = model_r.compute_bias(y)
 
         dev_raw[j, i] = -2 * (model_r.ll - model_f.ll)
 
-        # import ipdb;ipdb.set_trace()
-        conv_flag[j, i] = len(model_r._lls) == max_iter
+        dev_raw_[j, i] = sum(map(lambda x: np.log(model_r._parameters[2][x, x]) - np.log(model_f._parameters[2][x, x]),
+                                 target))
+        if dev_raw_[j, i] < 0:
+            warnings.filterwarnings('ignore')
+            ipdb.set_trace()
+        bias_r_[j, i] = model_r.compute_bias_idx(y, target)
+        bias_f_[j, i] = model_f.compute_bias_idx(y, target)
 
-    return dev_raw, bias_r, bias_f, model_f._parameters[0], model_f._parameters[2], lambda_f, model_f._lls, conv_flag
+        # import ipdb;ipdb.set_trace()
+        conv_flag[j, i] = len(model_r._lls[0]) == max_iter
+
+    dev_raw_ *= (y.shape[1] - p)
+    return dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_
+
 
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
-            a_f, q_f, lambda_f, ll_f, conv_flag, label_names, label_vertidx):
+            model_f, conv_flag, label_names, label_vertidx, debug=None):
 
         self.subject = subject
         self.nx = nx
@@ -237,13 +273,11 @@ class NLGC:
         self.d_raw = d_raw
         self.bias_f = bias_f
         self.bias_r = bias_r
-        self.a_f = a_f
-        self.q_f = q_f
-        self.lambda_f = lambda_f
-        self.ll_f = ll_f
-        self.conv_flag = conv_flag
+        self._model_f = model_f
+        self._conv_flag = conv_flag
         self._labels = label_names
-        self.label_vertidx = label_vertidx
+        self._label_vertidx = label_vertidx
+        self._debug = debug
 
     def plot_ll_curve(self):
         fig, ax = plt.subplots()
@@ -282,7 +316,7 @@ class NLGC:
 
 def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1,
-                  cv=5, label_names=None, label_vertidx=None):
+                  cv=5, label_names=None, label_vertidx=None, use_lapack=True):
     ny, nnx = gain.shape
     nx = nnx // n_eigenmodes
     _, t = M.shape
@@ -291,31 +325,32 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
     d_raw = np.zeros((n_segments, nx, nx))
     bias_r = np.zeros((n_segments, nx, nx))
     bias_f = np.zeros((n_segments, 1))
-    a_f = np.zeros((n_segments, p, nnx, nnx))
-    q_f = np.zeros((n_segments, nnx, nnx))
-    lambda_f = np.zeros((n_segments, 1))
-    ll_f = np.zeros((n_segments, max_iter))
     conv_flag = np.zeros((n_segments, nx, nx))
+    _d_raws = []
+    _bias_rs = []
+    _bias_fs = []
+    models = []
 
     for n in range(0, n_segments):
         print('Segment: ', n+1)
-        d_raw_, bias_r_, bias_f_, a_f_, q_f_, lambda_f_, ll_f_, conv_flag_ = \
+        d_raw_, bias_r_, bias_f_, model_f, conv_flag_, _d_raw, _bias_f, _bias_r = \
             _gc_extraction(M[:, n * tt: (n + 1) * tt], gain, r, p=p, p1=p1, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
                            alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
-                           max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor)
+                           max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
+                           use_lapack=use_lapack)
 
         d_raw[n] = d_raw_
         bias_r[n] = bias_r_
         bias_f[n] = bias_f_
-        a_f[n] = a_f_
-        q_f[n] = q_f_
-        lambda_f[n] = lambda_f_
-        ll_f[n, 0:len(ll_f_)] = ll_f_
+        _d_raws.append(_d_raw)
+        _bias_fs.append(_bias_f)
+        _bias_rs.append(_bias_r)
+        models.append(model_f)
         conv_flag[n] = conv_flag_
 
 
-    nlgc_obj = NLGC(name, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, a_f, q_f, lambda_f, ll_f,
-                    conv_flag, label_names, label_vertidx)
+    nlgc_obj = NLGC(name, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
+                    conv_flag, label_names, label_vertidx, (_d_raws, _bias_fs, _bias_rs))
 
     return nlgc_obj
 
@@ -323,7 +358,7 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
 def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
         ROIs_names='just_full_model',
         n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
-        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1, cv=5):
+        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True):
     _check_reference(evoked)
 
     depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
@@ -372,20 +407,123 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         for ROIs_name in ROIs_names:
             ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
 
-
     # Normalization
     M_normalizing_factor = linalg.norm(np.dot(M, M.T)/M.shape[1], ord='fro')
-    # G_normalizing_factor = linalg.norm(G, ord=2)
+    G_normalizing_factor = linalg.norm(G, ord=2)
+    # G /= G_normalizing_factor
     G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
     G /= G_normalizing_factor[None, :]
     G *= np.sqrt(M_normalizing_factor)
     r = 1
     label_names = [label.name for label in labels]
+# ##################################################################
+#     label_names_ = []
+#     for ROI in ROIs_idx:
+#         label_names_.append(label_names[ROI])
+#
+#     G_idx = []
+#     for i in ROIs_idx:
+#         for k in range(0, n_eigenmodes):
+#             G_idx.append(i*n_eigenmodes + k)
+#     G_ = G[:, G_idx]
+#     ROIs_idx = list(range(0, len(ROIs_idx)))
+    import ipdb
+    ipdb.set_trace()
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                             sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
-                            label_vertidx=label_vertidx)
+                            label_vertidx=label_vertidx, use_lapack=use_lapack)
 
     return out_obj
+
+
+def old_bias(model, reg_idx, n_eigenmodes=1):
+    """Computes the bias in the deviance (behrad@umd.edu)
+
+    Parameters
+    ----------
+    model:  the NEURALVAR model
+    reg_idx:  corresonding ROI index
+    n_eigenmodes:  number of eigenmodes
+
+    Returns
+    -------
+    bias
+    """
+
+    a = np.hstack(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm
+
+    bias = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]
+
+        xi = x_bar[p:, idx_src]
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd = np.diag(q)
+
+        # gradient of log - likelihood
+        ldot = 1 / qd[idx_src] * cx.T @ (xi - cx @ ai)
+
+        # hessian of log - likelihood
+        ldotdot = -1 / qd[idx_src] * (cx.T @ cx)
+
+        bias += ldot.T@np.linalg.solve(ldotdot, ldot)
+
+    return bias
+
+
+def old_log_likelihood(model, reg_idx, n_eigenmodes=1):
+    """Computes the src log-likelihood (behrad@umd.edu)
+
+    Parameters
+    ----------
+    model:  the NEURALVAR model
+    reg_idx:  corresonding ROI index
+    n_eigenmodes:  number of eigenmodes
+
+    Returns
+    -------
+    src ll
+    """
+
+    a = np.hstack(model._parameters[0])
+    q = model._parameters[2]
+    x_bar = model._parameters[4]
+
+    t, dxm = x_bar.shape
+    _, dtot = a.shape
+    p = dtot // dxm  # what's this??
+
+    ll = 0
+    for idx_src in range(reg_idx*n_eigenmodes, (reg_idx+1)*n_eigenmodes):
+        ai = a[idx_src]
+
+        xi = x_bar[p:, idx_src]
+
+        cx = np.zeros((t-p, dtot))
+
+        for k in range(p):
+            cx[:, k * dxm:(k + 1) * dxm] = x_bar[p - 1 - k:t - 1 - k]
+
+        qd_ = np.diag(q)
+        qd = qd_[idx_src]
+
+        # ll += -t*np.log(qd)/2 - (np.linalg.norm(xi - cx @ ai)**2)/(2*qd)
+        ll += -t*np.log(qd)/2 - t/2
+
+
+    return ll
+

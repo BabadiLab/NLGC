@@ -4,14 +4,14 @@ import glob
 from _nlgc import *
 from _nlgc import _extract_label_eigenmodes as _extracted_fwd
 import ipdb
-from nlgc.core import gc_extraction, NLGC
-from nlgc.core import full_model_estimation
 from matplotlib import pyplot as plt
 import pickle
 import logging
 from scipy.stats import chi2
 from nlgc._stat import fdr_control
 import itertools
+from _nlgc import _gc_extraction, NLGC
+
 
 def _undo_source_weighting(G, source_weighting):
     G = G / source_weighting[None, :]
@@ -118,7 +118,7 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
 
     # random.seed(0)
     import random
-    auditory_ROIs = list(range(0, 5))
+    auditory_ROIs = list(range(0, 10))
 
     # correlation = 1
     # while correlation == 1:
@@ -171,7 +171,7 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
     # pickle.dump(Y, 'sim_data.pickled')
 
     extracted_G, _, _ = _extracted_fwd(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
-    extracted_G = extracted_G / np.sum(extracted_G**2, axis=0)
+    extracted_G = extracted_G / np.sqrt(np.sum(extracted_G**2, axis=0))
     extracted_G_ = np.empty((n, len(auditory_ROIs)*n_eigenmodes))
     for i in range(0, len(auditory_ROIs)):
         extracted_G_[:, i*n_eigenmodes: (i+1)*n_eigenmodes] = extracted_G[:, auditory_ROIs[i]*n_eigenmodes: (auditory_ROIs[i]+1)*n_eigenmodes]
@@ -184,7 +184,7 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
 
 
 def simulate_AR_process():
-    m, p, t = 5, 2, 5*1000
+    m, p, t = 5, 2, 400
     # np.random.seed(0)
 
     q = 0.1 * np.eye(m)
@@ -265,11 +265,45 @@ if __name__ == '__main__':
 
     # behrad_root = r"G:\My Drive\behrad\Aging"
     behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
-    evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
-    forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
-    er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
-    fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
-    labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
+    # evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
+    # forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
+    # er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
+    # fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
+    # labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
+
+    n_eigenmodes = 2
+    p = 2
+    n_segments = 1
+    # y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
+    alpha = 0
+    beta = 0
+    lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
+    max_iter = 100
+    max_cyclic_iter = 3
+    tol = 1e-4
+    sparsity_factor = 0
+
+    with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
+    with open('f_.obj', 'rb') as fp: f = pickle.load(fp)
+    import scipy.io
+    scipy.io.savemat('y.mat', {'y': y})
+    scipy.io.savemat('f.mat', {'f': f})
+    _, m = y.shape
+    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, ll_f, conv_flag = _gc_extraction(y.T, f, r=np.eye(m), p=p,
+                   n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
+                   lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                   tol=tol, sparsity_factor=sparsity_factor)
+
+
+
+
+    # with open('y_' + '.obj', 'wb') as fh:
+    #     pickle.dump(y, fh)
+    #
+    # with open('f_' + '.obj', 'wb') as fh_:
+    #         pickle.dump(f, fh_)
+
+
 
     # n_eigenmodes = 2
     # p = 1
@@ -365,58 +399,58 @@ if __name__ == '__main__':
     ## histogram of deviances
 
 
-    n_eigenmodes = 2
-    p = 2
-    n_segment = 5
-    total_trial = 10
-    # GC_d = np.zeros((1, total_trial*10))
-    # non_GC_d = np.zeros((1, total_trial*10))
-    GC_d = np.zeros((1, total_trial))
-    non_GC_d = np.zeros((1, total_trial))
-
-    for trial in range(0, total_trial):
-        y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
-        tt, ny = y.shape
-        t = tt // n_segment
-        _, nnx = f.shape
-        nx = nnx // n_eigenmodes
-
-        d_avg = np.zeros((nx, nx))
-
-        print('trial: ', trial)
-
-        for n in range(0, n_segment):
-            print('segment: ', n)
-
-            d_raw, bias_r, bias_f, a_f, q_f, lambda_f, _ = gc_extraction(y[n*t: (n+1)*t, :], f, p, n_eigenmodes, ROIs=selected_ROIs)
-
-            test_obj = NLGC('test', nx, ny, t, p, n_eigenmodes, d_raw, bias_f, bias_r, a_f, q_f, lambda_f)
-
-            d_avg += test_obj.compute_debiased_dev()
-
-        d_avg /= n_segment
-        d_temp = d_avg[selected_ROIs, :][:, selected_ROIs]
-        d_temp = np.reshape(d_temp, (1, len(selected_ROIs)**2))
-        print(d_temp)
-
-        # GC_d[0, trial*10: trial*10 + 10] = d_temp[0, [1, 5, 7, 9, 15, 16, 17, 19, 22, 23]]
-        # non_GC_d[0, trial*10: trial*10 + 10] = d_temp[0, [2, 3, 4, 8, 10, 11, 13, 14, 20, 21]]
-
-        GC_d[0, trial] = d_temp[0, 7]
-        print('GC: ', d_temp[0, 7])
-        non_GC_d[0, trial] = d_temp[0, 20]
-        print('non_GC: ', d_temp[0, 20])
-
-
-    fig, ax = plt.subplots()
-
-    ax.hist(GC_d[GC_d > 0], bins=10, label='GC')
-    ax.hist(non_GC_d[non_GC_d > 0], bins=5, label='non_GC')
-    ax.legend()
-    # plt.savefig('histogram_test.svg')
-    plt.show()
-
-    # print(d_avg[selected_ROIs, :][:, selected_ROIs])
-    # d_trial[trial, :, :] = d_avg[selected_ROIs, :][:, selected_ROIs]
-    # ipdb.set_trace()
+    # n_eigenmodes = 2
+    # p = 2
+    # n_segment = 5
+    # total_trial = 10
+    # # GC_d = np.zeros((1, total_trial*10))
+    # # non_GC_d = np.zeros((1, total_trial*10))
+    # GC_d = np.zeros((1, total_trial))
+    # non_GC_d = np.zeros((1, total_trial))
+    #
+    # for trial in range(0, total_trial):
+    #     y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
+    #     tt, ny = y.shape
+    #     t = tt // n_segment
+    #     _, nnx = f.shape
+    #     nx = nnx // n_eigenmodes
+    #
+    #     d_avg = np.zeros((nx, nx))
+    #
+    #     print('trial: ', trial)
+    #
+    #     for n in range(0, n_segment):
+    #         print('segment: ', n)
+    #
+    #         d_raw, bias_r, bias_f, a_f, q_f, lambda_f, _ = gc_extraction(y[n*t: (n+1)*t, :], f, p, n_eigenmodes, ROIs=selected_ROIs)
+    #
+    #         test_obj = NLGC('test', nx, ny, t, p, n_eigenmodes, d_raw, bias_f, bias_r, a_f, q_f, lambda_f)
+    #
+    #         d_avg += test_obj.compute_debiased_dev()
+    #
+    #     d_avg /= n_segment
+    #     d_temp = d_avg[selected_ROIs, :][:, selected_ROIs]
+    #     d_temp = np.reshape(d_temp, (1, len(selected_ROIs)**2))
+    #     print(d_temp)
+    #
+    #     # GC_d[0, trial*10: trial*10 + 10] = d_temp[0, [1, 5, 7, 9, 15, 16, 17, 19, 22, 23]]
+    #     # non_GC_d[0, trial*10: trial*10 + 10] = d_temp[0, [2, 3, 4, 8, 10, 11, 13, 14, 20, 21]]
+    #
+    #     GC_d[0, trial] = d_temp[0, 7]
+    #     print('GC: ', d_temp[0, 7])
+    #     non_GC_d[0, trial] = d_temp[0, 20]
+    #     print('non_GC: ', d_temp[0, 20])
+    #
+    #
+    # fig, ax = plt.subplots()
+    #
+    # ax.hist(GC_d[GC_d > 0], bins=10, label='GC')
+    # ax.hist(non_GC_d[non_GC_d > 0], bins=5, label='non_GC')
+    # ax.legend()
+    # # plt.savefig('histogram_test.svg')
+    # plt.show()
+    #
+    # # print(d_avg[selected_ROIs, :][:, selected_ROIs])
+    # # d_trial[trial, :, :] = d_avg[selected_ROIs, :][:, selected_ROIs]
+    # # ipdb.set_trace()
 

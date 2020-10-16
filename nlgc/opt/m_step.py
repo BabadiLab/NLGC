@@ -81,10 +81,23 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
     a : ndarray of shape (n_sources, n_sources*order)
     changes : list of floats
     """
+    if lambda2 == 0:
+        try:
+            a = linalg.solve(s2, s1.T, assume_a='pos') # s1 * (s2 ** -1)
+        except linalg.LinAlgError:
+            a = linalg.solve(s2, s1.T, assume_a='sym') # s1 * (s2 ** -1)
+        return a.T, None
+
     warnings.filterwarnings('error')
     eps = np.finfo(s1.dtype).eps
     q = np.diag(q)
     qinv = 1 / q
+    # qinv = np.ones_like(q)
+    ############################################################################
+    # qinv = np.zeros_like(q)
+    # qinv[q <= 0] = 0
+    # qinv[q > 0] = 1 / q[q > 0]
+    ############################################################################
     qinv = np.expand_dims(qinv, -1)
     # max step size:
     h_norm = qinv.max()
@@ -133,7 +146,7 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
 
         while True:
             # Forward step
-            temp[:] = _a
+            temp = _a.copy()
             temp -= tau * grad
 
             # Backward (proximal) step
@@ -155,11 +168,15 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
                 break
             else:
                 tau /= 2
+        # if a.max() > 1:
+        #     import ipdb;
+        #     ipdb.set_trace()
 
         num = np.sum(diff ** 2)
         den = np.sum(_a ** 2)
         f_old = f_new
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
+
         fs[i+1] = f_old
     print(f"grad max: {grad.max()}, grad min: {grad.min()}, lambda:{lambda2}")
     print(f"starting f {fs[0]}, closing f {f_old}")
@@ -274,10 +291,15 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     q_ += beta
     q_ /= (1 + alpha)
     q[diag_indices] = q_
+    # if q.min() < 0:
+    #     import ipdb;
+    #     ipdb.set_trace()
+    # q = np.absolute(q)
+    # q[q < 0] = 0
     return q
 
 
-def compute_cross_ll(y, x_, s_, s_hat, a, f, q, r, m, n, p):
+def compute_cross_ll(x_, a, q, m, p):
     """Computes log-likelihood (See README)
 
     Parameters
@@ -306,24 +328,15 @@ def compute_cross_ll(y, x_, s_, s_hat, a, f, q, r, m, n, p):
     t = (x_.shape[0] - p)
 
     diff1 = x[p:] - x_[p - 1:-1].dot(a.T)
-    i_m = np.eye(m)
-    diag_indices = np.diag_indices_from(i_m)
-    if q.ndim == 1:
-        q = np.diag(q)
-    c = linalg.cholesky(q, lower=True)
-    c_inv = linalg.solve_triangular(c, i_m, lower=True, check_finite=False)
-    val = t * np.log(c_inv[diag_indices]).sum()
-    diff1 = diff1.dot(c_inv.T)
-    val -= (diff1 * diff1).sum() / 2
-
-    diff2 = y[p:] - x[p:].dot(f.T)
-    i_n = np.eye(n)
-    diag_indices = np.diag_indices_from(i_n)
-    c = linalg.cholesky(r, lower=True)
-    c_inv = linalg.solve_triangular(c, i_n, lower=True, check_finite=False)
-    val += t * np.log(c_inv[diag_indices]).sum()
-    diff2 = diff2.dot(c_inv.T)
-    val -= (diff2 * diff2).sum() / 2
+    # i_m = np.eye(m)
+    # diag_indices = np.diag_indices_from(i_m)
+    # if q.ndim == 1:
+    #     q = np.diag(q)
+    # c = linalg.cholesky(q, lower=True)
+    # c_inv = linalg.solve_triangular(c, i_m, lower=True, check_finite=False)
+    # # val = t * np.log(c_inv[diag_indices]).sum()
+    # diff1 = diff1.dot(c_inv.T)
+    val = -(diff1 * diff1).sum() / 2
 
     return val
 
@@ -388,6 +401,59 @@ def compute_ll(y, x_, s, s_, s_hat, a, f, q, r, m, n, p):
     c = linalg.cholesky(s[:m, :m], lower=True)
     val += np.log(c[diag_indices]).sum()
     return val
+
+
+def compute_Q(y, x_, s_, b, a, f, q, r, m, p):
+    """Computes log-likelihood (See README)
+
+    Parameters
+    ----------
+    y : ndarray of shape (n_samples, n_channels)
+    x_ : ndarray of shape (n_samples, n_sources*order)
+    s_ : ndarray of shape (n_sources*order, n_sources*order)
+    s_hat : ndarray of shape (n_sources*order, n_sources*order)
+    a : ndarray of shape (n_sources, n_sources*order)
+    f : ndarray of shape (n_channels, n_sources)
+    q : ndarray of shape (n_sources, n_sources)
+    r : ndarray of shape (n_channels, n_channels)
+    m : int
+        n_sources
+    n : int
+        n_channels
+    p : int
+        order
+    returns
+    -------
+    val : float
+        the log-likelihood value
+        note that it is not normalized by T.
+    """
+    x = x_[:, :m]
+
+    # s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
+    #
+    # temp = s1.dot(a.T)
+    # temp1 = s3 - temp - temp.T + a.dot(s2).dot(a.T)
+    # if q.ndim == 2:
+    #     q = np.diag(q)
+    # qinv = np.diag(1 / q)
+    # val = - t * (temp1 * qinv).sum() / 2
+
+    # diff2 = y[p:] - x[p:].dot(f.T)
+    # temp2 = diff2.T.dot(diff2) + t * f.dot(s_[:m, :m]).dot(f.T)
+    # if r.ndim == 2:
+    #     r = np.diag(r)
+    # rinv = np.diag(1 / r)
+    # val -= (temp2 * rinv).sum() / 2
+    #
+    # val -= t * np.log(q).sum() / 2
+    #
+    # val -= t * np.log(r).sum() / 2
+
+    diff2 = y[p:] - x[p:].dot(f.T)
+    val = -(diff2 * diff2).sum()
+
+    return  val
 
 
 def test_solve_for_a_and_q(t=1000):

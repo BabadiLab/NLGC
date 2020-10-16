@@ -10,8 +10,9 @@ from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
 
-from nlgc.opt.e_step import sskf, align_cast
-from nlgc.opt.m_step import calculate_ss, solve_for_a, solve_for_q, compute_ll, compute_cross_ll, solve_for_a_cv
+from nlgc.opt.e_step import sskf, sskfcv, align_cast
+from nlgc.opt.m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
+                             compute_cross_ll, solve_for_a_cv, compute_Q)
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
@@ -115,8 +116,12 @@ class NeuraLVAR:
             zeroed_index = (x_index, y_index)
         else:
             zeroed_index = None
+        # import ipdb
+        # ipdb.set_trace()
 
         lls = []
+        Qvals = []
+        source_fits = []
         for i in range(max_iter):
             a_[:m] = a_upper
             q_[non_zero_indices] = q_upper[non_zero_indices]
@@ -124,27 +129,29 @@ class NeuraLVAR:
             x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
             ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
             lls.append(ll)
+            Qvals.append(compute_Q(y, x_, s_, b, a_upper, f, q_upper, r, m, p))
+            source_fits.append(compute_cross_ll(x_, a_upper, q_upper, m, p))
             # stopping cond
             if i > 0:
-                rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
+                # rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
+                rel_change = (Qvals[i - 1] - Qvals[i]) / Qvals[i - 1]
                 if np.abs(rel_change) < rel_tol:
                     break
                 print(f"{i}: rel change:{np.abs(rel_change)}")
 
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
             beta = 2 * beta / t
-            alpha = 2 * (alpha + 1) / t
+            alpha = 2 * (alpha + 1) / t if alpha else alpha
 
             for _ in range(max_cyclic_iter):
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
                 if q_upper.min() < 0:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000, tol=1e-4,
-                                               zeroed_index=zeroed_index)
+                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000,
+                                               tol=min(1e-4, rel_tol), zeroed_index=zeroed_index)
                 print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
-
         a = self._unravel_a(a_upper)
-        return a, q_upper, lls, f, r, zeroed_index, xs, x_
+        return a, q_upper, (lls, Qvals, source_fits), f, r, zeroed_index, xs, x_
 
     def compute_ll(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -169,7 +176,7 @@ class NeuraLVAR:
         ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
         return ll
 
-    def compute_cross_ll(self, y, args=None):
+    def compute_Q(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
 
         Parameters
@@ -189,8 +196,32 @@ class NeuraLVAR:
         a, f, q, r, *rest = args
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
-        ll = compute_cross_ll(y, x_, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
+        ll = compute_Q(y, x_, s_, b, a_upper, f, q_upper, r, m, p)
         return ll
+
+    def compute_cross_ll(self, y, args=None):
+        """Returns log(p(y|args=(a, f, q, r))).
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        args : tuple of ndarrays, default=None
+            Expect a tuple with the model parameters: (a, f, q, r).
+            if None, self._parameters is used.
+
+        Returns
+        -------
+        log_likelihood : float
+            Returns log(p(y|(a, f, q, r))).
+        """
+        if args is None:
+            args = self._parameters
+        a, f, q, r, *rest = args
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        # x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        # ll = compute_cross_ll(x_, a_upper, q_upper, m, p)
+        # return ll
+        return sskfcv(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
 
     def compute_bias(self, y):
         from .._utils import sample_path_bias
@@ -198,6 +229,15 @@ class NeuraLVAR:
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index)
+        return bias
+
+    def compute_bias_idx(self, y, source):
+        from .._utils import mybias
+        a, f, q, r, *rest = self._parameters
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        if isinstance(source, int): source = tuple(source)
+        bias = sum([mybias(i, q_upper, a_, x_, s_, b, m, p, self._zeroed_index) for i in source])
         return bias
 
     def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
@@ -237,7 +277,7 @@ class NeuraLVAR:
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
-        self.ll = lls[-1]
+        self.ll = lls[0][-1]
         self.lambda_ = lambda2
         return self
 
@@ -387,7 +427,6 @@ class NeuraLVARCV(NeuraLVAR):
             zeroed_index = (x_index, y_index)
         else:
             zeroed_index = None
-
         lls = []
         for i in range(max_iter):
             a_[:m] = a_upper
@@ -411,7 +450,10 @@ class NeuraLVARCV(NeuraLVAR):
                                                   tol=rel_tol, zeroed_index=zeroed_index,
                                                   max_n_lambda2=self.max_n_mus, cv=self.cv)
                 q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
-
+            # print(f'max_a: {a_upper.max()}, max_q: {q_upper.max()}')
+            # if a_upper.max() >= 1e10:
+            #     import ipdb
+            #     ipdb.set_trace()
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_, lambda2
 
@@ -531,15 +573,17 @@ class NeuraLVARCV_(NeuraLVAR):
         for i, lambda2 in enumerate(lambda_range):
             lambda2 = lambda2 / np.sqrt(y_train.shape[-1])
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
+            if i > 0:
+                a_init = a_.copy()
+                # q_init = q_upper.copy() * lambda_range[i-1] / lambda_range[i]
             a_, q_upper, lls, _, _, _, xs, _ = \
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter,
                           max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
-            cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
+            cross_ll = self.compute_cross_ll(y_test, (a_, f, q_upper, r))
+            # cross_ll = self.compute_Q(y_test, (a_, f, q_upper, r))
             # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
-            a_init = a_.copy()
-            q_init = q_upper.copy()
             cv[split, i] = cross_ll
             val += cross_ll
 
@@ -616,8 +660,10 @@ class NeuraLVARCV_(NeuraLVAR):
         # Find best mu
         # normalized_cross_lls = self.mse_path - self.mse_path.max()
         # ipdb.set_trace()
+
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         index = self.mse_path.mean(axis=0).argmax()
+
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')
 
@@ -627,7 +673,7 @@ class NeuraLVARCV_(NeuraLVAR):
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
-        self.ll = lls[-1]
+        self.ll = lls[0][-1]
         self.lambda_ = best_lambda
 
 
