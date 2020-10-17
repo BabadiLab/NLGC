@@ -4,12 +4,12 @@ import ipdb
 import numpy as np
 import itertools
 from scipy import linalg
-from nlgc.opt.e_step import sskf
-from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
+# from nlgc.opt.e_step import sskf
+# from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
 from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
-from nlgc._utils import debiased_dev
+# from nlgc._utils import debiased_dev
 from nlgc._stat import fdr_control
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 def string_link(reg_idx, emod):

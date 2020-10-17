@@ -167,7 +167,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
     # ipdb.set_trace()
-    with open('model_f_depth=0.0.pkl', 'wb') as fp:
+    with open('model_f.pkl', 'wb') as fp:
         pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
     bias_f = model_f.compute_bias(y)
@@ -202,7 +202,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
         model_r = NeuraLVAR(p, p1, use_lapack=True)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_f * mul, restriction=link, alpha=alpha,
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_init.copy(), restriction=link, alpha=alpha,
                     beta=beta, **kwargs)
         # print(model_r._lls)
 

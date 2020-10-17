@@ -12,6 +12,8 @@ from nlgc._stat import fdr_control
 import itertools
 from _nlgc import _gc_extraction, NLGC
 
+import warnings
+warnings.filterwarnings('ignore')
 
 def _undo_source_weighting(G, source_weighting):
     G = G / source_weighting[None, :]
@@ -111,14 +113,15 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
     _, m_active = X.shape
 
     auditory_ROIs = []
+    grant_ROIs = ['rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis', 'parstriangularis', 'superiortemporal',
+                  'middletemporal', 'transversetemporal']
     for i in range(0, len(labels)):
-        if 'temporal' in labels[i].name or 'frontal' in labels[i].name or 'parietal' in labels[i].name:
+        for j in grant_ROIs:
+            if j in labels[i].name:
             # print(i, labels[i].name)
-            auditory_ROIs.append(i)
+                auditory_ROIs.append(i)
 
-    # random.seed(0)
-    import random
-    auditory_ROIs = list(range(0, 10))
+
 
     # correlation = 1
     # while correlation == 1:
@@ -136,7 +139,8 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
     #
     #     correlation = check_uncorrelated_columns(g, 0.9)
 
-    selected_ROIs = [0, 1, 2, 3, 4]
+    # selected_ROIs = [0, 1, 2, 3, 4]
+    selected_ROIs = auditory_ROIs
     g = np.empty((n, m_active))
     for i in range(0, m_active):
         idx = selected_ROIs[i]
@@ -144,7 +148,8 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
         # selected_srcs = random.sample(range(0, len(label_vertidxs[idx][:])), k=3)
         i0 = label_vertidxs[idx][:]
         g0 = G[:, i0].dot(src_flips[idx])
-        g0 = g0 / np.sqrt(g0.T.dot(g0))
+        # g0 = g0 / np.sqrt(g0.T.dot(g0))
+        g0 = g0 / len(i0)
         g[:, i] = g0[:, 0]
 
     selected_ROIs_ = list()
@@ -153,16 +158,16 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
 
     print(selected_ROIs)
 
+    # ipdb.set_trace()
     Y = X.dot(g.T)
     px = Y.dot(Y.T).trace()
 
     noise = np.random.standard_normal(Y.shape)
     pn = noise.dot(noise.T).trace()
-    multiplier = pn/px
+    multiplier = 1e4*pn/px
 
-
-    Y = multiplier*Y + noise
-
+    Y += noise/np.sqrt(multiplier)
+    r_cov = 1/multiplier
 
     # whiten the data
     logger.info('Whitening data matrix.')
@@ -180,49 +185,32 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
 
     # ipdb.set_trace()
 
-    return Y, extracted_G_, selected_ROIs_
+    return Y, extracted_G_, selected_ROIs_, r_cov
 
 
 def simulate_AR_process():
     m, p, t = 5, 2, 400
-    # np.random.seed(0)
+    np.random.seed(0)
 
-    q = 0.1 * np.eye(m)
+    q =  np.eye(m)
     q[0, 0] = 10
     q[1, 1] = 11
     q[2, 2] = 12.5
     q[3, 3] = 11
     q[4, 4] = 13
+    q *= 0.01
 
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
 
-    a[1, 0, 0] = 0.2
-    a[1, 1, 1] = 0.2
-    a[1, 2, 2] = 0.2
-    a[1, 3, 3] = 0.2
-    a[1, 4, 4] = 0.2
+    a[0, 0, 0] = 0.5
+    a[0, 1, 1] = 0.5
+    a[0, 2, 2] = 0.5
+    a[0, 3, 3] = 0.5
+    a[0, 4, 4] = 0.5
 
-    a[1, 1, 2] = 0.8
-
-    a[0, 1, 0] = 0.7
-
-    a[0, 0, 1] = -0.8
-
-    a[0, 3, 4] = -0.8
-
-    a[1, 4, 3] = 0.65
-
-    a[0, 3, 2] = -0.55
-
-    a[1, 3, 0] = 0.75
-
-    a[0, 4, 2] = 0.7
-
-    a[0, 1, 4] = 0.7
-
-    a[1, 3, 1] = -0.5
-
+    a[1, 1, 0] = 0.2
+    a[0, 2, 3] = -0.2
 
 
     u = np.random.standard_normal(m * t)
@@ -238,6 +226,8 @@ def simulate_AR_process():
         x[i] = u[i]
         for k in range(p):
             x[i] += a[k].dot(x[i - k - 1])
+
+    ipdb.set_trace()
 
     return x
 
@@ -265,31 +255,42 @@ if __name__ == '__main__':
 
     # behrad_root = r"G:\My Drive\behrad\Aging"
     behrad_root = "/Users/behrad/Google Drive/behrad/Aging"
-    # evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
-    # forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
-    # er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
-    # fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
-    # labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
+    evoked = mne.read_evokeds(os.path.join(behrad_root, 'test', 'R2533-pass_single_M02-ave.fif'))
+    forward = mne.read_forward_solution(os.path.join(behrad_root, 'test', 'R2533-ico-4-fwd.fif'))
+    er_cov = mne.read_cov(os.path.join(behrad_root, 'test', 'emptyroom-cov.fif'))
+    fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
+    labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
 
     n_eigenmodes = 2
     p = 2
     n_segments = 1
-    # y, f, selected_ROIs = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
+    y, f, selected_ROIs, r_cov = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
     alpha = 0
     beta = 0
-    lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
-    max_iter = 100
-    max_cyclic_iter = 3
-    tol = 1e-4
+    # lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
+    # lambda_range = [100, 50, 20, 10, 5, 2, 1, 0.5]
+    lambda_range = [0.5]
+    # lambda_range = [10,9,8,7,6,5,4]
+    max_iter = 500
+    max_cyclic_iter = 1
+    tol = 1e-5
     sparsity_factor = 0
 
-    with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
-    with open('f_.obj', 'rb') as fp: f = pickle.load(fp)
-    import scipy.io
-    scipy.io.savemat('y.mat', {'y': y})
-    scipy.io.savemat('f.mat', {'f': f})
+    x_ = simulate_AR_process()
+    fig, ax = plt.subplots()
+    ax.plot(x_)
+    fig.show()
+
+    ipdb.set_trace()
+
+
+    # with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
+    # with open('f_.obj', 'rb') as fp: f = pickle.load(fp)
+    # import scipy.io
+    # scipy.io.savemat('y.mat', {'y': y})
+    # scipy.io.savemat('f.mat', {'f': f})
     _, m = y.shape
-    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, ll_f, conv_flag = _gc_extraction(y.T, f, r=np.eye(m), p=p,
+    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, ll_f, conv_flag = _gc_extraction(y.T, f, r=r_cov*np.eye(m), p=p, p1=p,
                    n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
                    lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                    tol=tol, sparsity_factor=sparsity_factor)
