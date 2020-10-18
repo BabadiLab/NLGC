@@ -196,7 +196,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
     bias_f = model_f.compute_bias(y)
 
     warnings.filterwarnings('ignore')
-    model_f.compute_cross_ll(y)
+    model_f.compute_crossvalidation_metric(y)
     ipdb.set_trace()
 
     dev_raw = np.zeros((nx, nx))

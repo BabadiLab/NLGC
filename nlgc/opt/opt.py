@@ -14,6 +14,9 @@ from nlgc.opt.e_step import sskf, sskfcv, align_cast
 from nlgc.opt.m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
                              compute_cross_ll, solve_for_a_cv, compute_Q)
 
+from matplotlib import pyplot as plt
+import ipdb
+
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
 
@@ -59,7 +62,7 @@ class NeuraLVAR:
         self._use_lapack = use_lapack
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
-             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1):
+             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1, fixed_a=False, fixed_q=False):
         """Internal function that fits the model from given data
 
         Parameters
@@ -116,8 +119,6 @@ class NeuraLVAR:
             zeroed_index = (x_index, y_index)
         else:
             zeroed_index = None
-        # import ipdb
-        # ipdb.set_trace()
 
         lls = []
         Qvals = []
@@ -137,19 +138,22 @@ class NeuraLVAR:
                 rel_change = (Qvals[i - 1] - Qvals[i]) / Qvals[i - 1]
                 if np.abs(rel_change) < rel_tol:
                     break
-                print(f"{i}: rel change:{np.abs(rel_change)}")
+                # print(f"{i}: rel change:{np.abs(rel_change)}")
 
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
             beta = 2 * beta / t
             alpha = 2 * (alpha + 1) / t if alpha else alpha
 
+
             for _ in range(max_cyclic_iter):
-                q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+                if not fixed_a:
+                    a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000,
+                                                   tol=min(1e-4, rel_tol), zeroed_index=zeroed_index)
+                if not fixed_q:
+                    q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
                 if q_upper.min() < 0:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
-                a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000,
-                                               tol=min(1e-4, rel_tol), zeroed_index=zeroed_index)
-                print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
+                # print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
         a = self._unravel_a(a_upper)
         return a, q_upper, (lls, Qvals, source_fits), f, r, zeroed_index, xs, x_
 
@@ -199,7 +203,16 @@ class NeuraLVAR:
         ll = compute_Q(y, x_, s_, b, a_upper, f, q_upper, r, m, p)
         return ll
 
-    def compute_cross_ll(self, y, args=None):
+    def compute_logsum_q(self, y, max_iter, max_cyclic_iter, rel_tol, alpha, beta, args=None):
+        if args is None:
+            args = self._parameters
+        a, f, q, r, *rest = args
+        _, q_upper, *rest = self._fit(y, f, r, None, max_iter, max_cyclic_iter, a.copy(), q.copy(), rel_tol, None,
+                                      alpha, beta, fixed_a=True)
+        return - np.log(np.diag(q_upper)).sum()
+
+
+    def compute_crossvalidation_metric(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
 
         Parameters
@@ -581,9 +594,11 @@ class NeuraLVARCV_(NeuraLVAR):
                           max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
-            cross_ll = self.compute_cross_ll(y_test, (a_, f, q_upper, r))
+            cross_ll = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
             # cross_ll = self.compute_Q(y_test, (a_, f, q_upper, r))
             # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
+            # cross_ll = self.compute_logsum_q(y, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+            #                                  rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
             cv[split, i] = cross_ll
             val += cross_ll
 
