@@ -249,7 +249,7 @@ def test_sskf(t=1000):
     # n, m = 155, 6*2*68
     n, m = 3, 3
     q = np.eye(m)
-    r = np.eye(n)
+    r = 0.01*np.eye(n)
     sn = np.random.standard_normal((m + n) * t)
     u = sn[:m * t]
     u.shape = (t, m)
@@ -261,7 +261,8 @@ def test_sskf(t=1000):
     v = v.dot(l.T)
     a = np.random.randn(m, m)
     a /= 1.1 * linalg.norm(a)
-    f = np.random.randn(n, m)
+    # f = np.random.randn(n, m)
+    f = np.eye(3)
     x = np.empty((t, m), dtype=np.float64)
     x[0] = 0.0
     for x_, _x, u_ in zip(x[1:], x, u):
@@ -275,23 +276,23 @@ def test_sskf(t=1000):
     _x = np.empty((y.shape[0], m), dtype=np.float64)
     x_ = np.empty_like(_x)
 
-    pr = cProfile.Profile()
-    pr.enable()
-    x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
-    pr.disable()
-    s1 = io.StringIO()
-    ps = pstats.Stats(pr, stream=s1).sort_stats(pstats.SortKey.CUMULATIVE)
-    ps.print_stats()
-    print(s1.getvalue())
-
-    pr = cProfile.Profile()
-    pr.enable()
-    x__, s__, b_, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
-    pr.disable()
-    s2 = io.StringIO()
-    ps = pstats.Stats(pr, stream=s2).sort_stats(pstats.SortKey.CUMULATIVE)
-    ps.print_stats()
-    print(s2.getvalue())
+    # pr = cProfile.Profile()
+    # pr.enable()
+    # x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
+    # pr.disable()
+    # s1 = io.StringIO()
+    # ps = pstats.Stats(pr, stream=s1).sort_stats(pstats.SortKey.CUMULATIVE)
+    # ps.print_stats()
+    # print(s1.getvalue())
+    #
+    # pr = cProfile.Profile()
+    # pr.enable()
+    # x__, s__, b_, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
+    # pr.disable()
+    # s2 = io.StringIO()
+    # ps = pstats.Stats(pr, stream=s2).sort_stats(pstats.SortKey.CUMULATIVE)
+    # ps.print_stats()
+    # print(s2.getvalue())
 
     from codetiming import Timer
 
@@ -300,11 +301,11 @@ def test_sskf(t=1000):
 
     for _ in range(10):
         with t1:
-            x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
+            x_, s_, b, _, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=True)
     print("Elapsed time: {:.4f}\pm{:.4f}".format(Timer.timers.mean("opt"), Timer.timers.stdev("opt")))
     for _ in range(10):
         with t2:
-            x_, s_, b, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
+            x__, s__, b, _, _ = sskf(y, a, f, q, r, xs=(_x, x_), use_lapack=False)
     print("Elapsed time: {:.4f}\pm{:.4f}".format(Timer.timers.mean("vanilla"), Timer.timers.stdev("vanilla")))
 
     fig, axes = plt.subplots(x.shape[1])
@@ -313,4 +314,3 @@ def test_sskf(t=1000):
         ax.plot(xi_)
         ax.plot(xi__)
     fig.show()
-    return s1, s2
