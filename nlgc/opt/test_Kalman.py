@@ -3,7 +3,7 @@ from scipy import linalg
 from matplotlib import pyplot as plt
 from nlgc.opt.e_step import sskf
 from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
-from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
+from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV_
 
 # np.random.seed(5)
 
@@ -11,7 +11,7 @@ from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 n, m, p, k = 3, 3, 2, 4
 t = 1000
 q = np.eye(m)
-r = np.eye(n)
+r = 0.001 * np.eye(n)
 
 sn = np.random.standard_normal((m + n) * t)
 u = sn[:m * t]
@@ -29,6 +29,7 @@ a.shape = (p, m, m)
 a[0] /= 1.1 * linalg.norm(a[0])
 a[1] /= 1.1 * linalg.norm(a[1])
 f = np.random.randn(n, m)
+f = np.eye(n)
 x = np.empty((t, m), dtype=np.float64)
 x[0] = 0.0
 x[1] = 0.0
@@ -45,30 +46,30 @@ def test_neuralvar(use_lapack=True, lambda2=0.1, rel_tol=0.0001):
     model = NeuraLVAR(p, use_lapack=use_lapack)
     y_train = y[:900]
     y_test = y[900:]
-    a_, q_upper, lls, *rest = \
-        model._fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1*q,
+    a_, q_upper, lls, _, _, _, xs, x_ = \
+        model._fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=a.copy(), q_init=0.1*q,
         rel_tol=rel_tol)
-    print(a_)
-    print('\n')
-    print(a)
-    print(q_upper)
-    print(lls)
-    print(model.compute_ll(y_test.T, (a_, f, q_upper, r)))
-    model = NeuraLVAR(p, use_lapack=use_lapack)
-    model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1*q, rel_tol=rel_tol)
-    print(f"ll:{model.compute_ll(y_test.T, None)}")
-    model = NeuraLVAR(p, use_lapack=use_lapack)
-    model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
-              rel_tol=rel_tol, restriction='1->2')
-    print(f"ll:{model.compute_ll(y_test.T, None)}")
-    model = NeuraLVAR(p, use_lapack=use_lapack)
-    model.fit(y.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
-              rel_tol=rel_tol)
+    # print(a_)
+    # print('\n')
+    # print(a)
+    # print(q_upper)
+    # print(lls)
+    # print(model.compute_ll(y_test.T, (a_, f, q_upper, r)))
+    # model = NeuraLVAR(p, use_lapack=use_lapack)
+    # model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1*q, rel_tol=rel_tol)
+    # print(f"ll:{model.compute_ll(y_test.T, None)}")
+    # model = NeuraLVAR(p, use_lapack=use_lapack)
+    # model.fit(y_train.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
+    #           rel_tol=rel_tol, restriction='1->2')
+    # print(f"ll:{model.compute_ll(y_test.T, None)}")
+    # model = NeuraLVAR(p, use_lapack=use_lapack)
+    # model.fit(y.T, f, r, lambda2=lambda2, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=0.1 * q,
+    #           rel_tol=rel_tol)
     print(model._parameters)
 
 
 def test_neuralvarcv(use_lapack=True, lambda2=0.05, rel_tol=0.0001):
-    model = NeuraLVARCV(p, 10, 5, 10, use_lapack=use_lapack)
+    model = NeuraLVARCV_(p, p, 10, 5, 10, use_lapack=use_lapack)
                     # order, max_n_mus, cv, n_jobs,
     model.fit(y.T, f, r, lambda_range=[0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001], max_iter=100, max_cyclic_iter=2, a_init=None,
               q_init=0.1*q, rel_tol=rel_tol)
@@ -143,8 +144,8 @@ def inspect_results(use_lapack=True, lambda2=0.05):
 
 
 if __name__ == '__main__':
-    # test_neuralvar()
-    test_neuralvarcv(rel_tol=0.00001)
+    test_neuralvar()
+    # test_neuralvarcv(rel_tol=0.00001)
     # import timeit
     # print("use_lapack=False")
     # print(timeit.repeat("test_em(use_lapack=False)", setup="from __main__ import test_em", number=1, repeat=5))
