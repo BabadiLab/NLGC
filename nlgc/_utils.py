@@ -73,7 +73,7 @@ def sample_path_bias(q, a, x_bar, zeroed_index):
     return bias
 
 
-def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
+def mybias(idx_src, q, a, x_bar, s_bar, b, m, p, zeroed_index=None):
     """Computes the bias in the deviance (proloy@umd.edu)
 
     Parameters
@@ -88,50 +88,41 @@ def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
     bias
 
     """
+    warnings.filterwarnings('always')
     _, dtot = a.shape
 
-    n = (x_bar.shape[0] - p)
-
-    #### These just uses means
-    # x_ = x_bar[:, :m]
-    # # compute the following quantities carefully
-    # # s1 = x[2:].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    # s1 = x_[p:].T.dot(x_bar[p - 1:-1]) / n
-    #
-    # # s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
-    # s2 = x_bar[p - 1:-1].T.dot(x_bar[p - 1:-1]) / n
-    #
-    # # s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p + 1)
-    # s3 = x_[p:].T.dot(x_[p:]) / n
-
     ### These uses the whole distribution.
-    s1, s2, s3 = calculate_ss(x_bar, s_bar, b, m, p)
+    s1, s2, s3, n = calculate_ss(x_bar, s_bar, b, m, p)
 
     ai = a[idx_src]  # in python slicing returns 1d array, so transpose is meaningless.
     qi = q[idx_src, idx_src]
 
-
-    ldot = np.empty((dtot + 1))
-    ldotdot = np.empty((dtot + 1, dtot + 1))
+    ldot = np.empty((dtot))
+    ldotdot = np.empty((dtot, dtot))
 
     temp1 = s2.dot(ai)
     pev = s3[idx_src,idx_src] - 2 * s1[idx_src].dot(ai) +  ai.dot(temp1)  # prediction_error_variance
     temp1 -= s1[idx_src]
 
     # ldot[0, 0] = -t / qd[idx_src] / 2 + 1 / (qd[idx_src] ** 2) / 2 * np.linalg.norm(xi - cx @ ai, ord=2)
-    ldot[0] = (- 1  + pev / qi) / (2 * qi)
-    ldot[1:] = - temp1
-    ldot[1:] /= qi
+    # ldot[0] = (- 1  + pev / qi) / (2 * qi)
+    ldot[:] = - temp1
+    ldot[:] /= qi
 
     # ldotdot[0, 0] = t / (qd[idx_src] ** 2) / 2 - 1 / (qd[idx_src] ** 3) / 2 * np.linalg.norm(xi - cx @ ai, ord=2)
-    ldotdot[0, 0] = (0.5 - pev / qi)
-    ldotdot[0, 1:] = temp1
-    ldotdot[0] /= (qi * qi)
-    ldotdot[1:, 1:] = - s2 / qi
-    ldotdot[1:, 0] = ldotdot[0, 1:]
+    # ldotdot[0, 0] = (0.5 - pev / qi)
+    # ldotdot[0, 1:] = temp1
+    # ldotdot[0] /= (qi * qi)
+    ldotdot[:, :] = - s2 / qi
+    # ldotdot[1:, 0] = ldotdot[0, 1:]
 
-    # print(ldot)
-    # print(ldotdot)
+    if zeroed_index is not None:
+        x_index, y_index = zeroed_index
+        if idx_src in x_index:
+            removed_idx = list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])
+            ldot = np.delete(ldot, removed_idx)
+            ldotdot = np.delete(ldotdot, removed_idx, axis=0)
+            ldotdot = np.delete(ldotdot, removed_idx, axis=1)
 
     try:
         c, low = linalg.cho_factor(-ldotdot)
@@ -146,10 +137,7 @@ def mybias(idx_src, q, a, x_bar, s_bar, b, m, p):
         idx = e > 0
         bias = np.sum(temp[idx] ** 2 / e[idx])
         bias *= n
-        # temp = linalg.solve(-ldotdot, ldot, assume_a='sym')
-    # import ipdb; ipdb.set_trace()
-    # import ipdb;
-    # ipdb.set_trace()
+
     return bias
 
 

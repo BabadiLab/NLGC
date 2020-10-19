@@ -227,8 +227,6 @@ def simulate_AR_process():
         for k in range(p):
             x[i] += a[k].dot(x[i - k - 1])
 
-    ipdb.set_trace()
-
     return x
 
 
@@ -248,6 +246,91 @@ def missed_false_detection(J, J_est):
 
     return missed_det, false_det
 
+def simulation_rnd():
+
+    n, nx, n_eigenmodes, p = 2, 2, 1, 2
+    np.random.seed(0)
+
+    m = nx * n_eigenmodes
+
+    t = 100
+
+    r = np.eye(n)
+    q = 0.1 * np.eye(m)
+    q[0, 0] = 10
+    q[1, 1] = 11
+    # q[2, 2] = 8
+    # q[3, 3] = 9
+    # q[4, 4] = 11
+    # q[5, 5] = 9.5
+    # q[6, 6] = 10.3
+    # q[7, 7] = 9.4
+    # q[8, 8] = 10.1
+    # q[9, 9] = 12.2
+
+    a = np.zeros(p * m * m, dtype=np.float64)
+    a.shape = (p, m, m)
+
+    a[0, 0, 1] = -0.8
+
+    a[0, 0, 0] = 0.2
+
+    a[1, 1, 1] = 0.2
+
+    # a[1, 1, 4] = -0.8
+
+    # a[2, 2, 1] = 0.35
+
+    # a[0, 3, 2] = -0.55
+
+    # a[1, 3, 0] = 0.75
+
+    # a[2, 4, 2] = 0.7
+
+    # a[2, 3, 1] = -0.5
+
+    # a[1, 5, 6] = 0.6
+    #
+    # a[0, 2, 8] = 0.8
+    #
+    # # a[1, 3, 8] = -0.5
+    #
+    # a[0, 8, 1] = -0.9
+    #
+    # a[1, 8, 4] = 0.55
+    #
+    # a[3, 4, 8] = -0.75
+    #
+    # a[2, 6, 9] = 0.85
+
+    # for i in range(1, m):
+    #     a[2, i, i] = 0.1
+
+    sn = np.random.standard_normal((m + n) * t)
+    u = sn[:m * t]
+    u.shape = (t, m)
+    l = linalg.cholesky(q, lower=True)
+    u = u.dot(l.T)
+    v = sn[m * t:]
+    v.shape = (t, n)
+    l = linalg.cholesky(r, lower=True)
+    v = v.dot(l.T)
+
+    # f = np.random.randn(n, m)
+    f = np.eye(n)
+    x = np.empty((t, m), dtype=np.float64)
+    for i in range(p):
+        x[i] = 0.0
+
+    for i in range(p, t):
+        x[i] = u[i]
+        for k in range(p):
+            x[i] += a[k].dot(x[i - k - 1])
+
+    y = x.dot(f.T) + v
+
+    return y, f, p, n_eigenmodes
+
 if __name__ == '__main__':
 
     filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
@@ -265,11 +348,10 @@ if __name__ == '__main__':
     p = 2
     n_segments = 1
     y, f, selected_ROIs, r_cov = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
+    y, f, p, n_eigenmodes = simulation_rnd()
     alpha = 0
     beta = 0
-    # lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
-    # lambda_range = [100, 50, 20, 10, 5, 2, 1, 0.5]
-    lambda_range = [0.5]
+    lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
     # lambda_range = [10,9,8,7,6,5,4]
     max_iter = 500
     max_cyclic_iter = 1
@@ -281,7 +363,6 @@ if __name__ == '__main__':
     ax.plot(x_)
     fig.show()
 
-    ipdb.set_trace()
 
 
     # with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
@@ -290,12 +371,13 @@ if __name__ == '__main__':
     # scipy.io.savemat('y.mat', {'y': y})
     # scipy.io.savemat('f.mat', {'f': f})
     _, m = y.shape
-    d_raw, bias_r, bias_f, a_f, q_f, lambda_f, ll_f, conv_flag = _gc_extraction(y.T, f, r=r_cov*np.eye(m), p=p, p1=p,
+    dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_ = _gc_extraction(y.T, f, r=r_cov*np.eye(m), p=p, p1=p,
                    n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
                    lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                    tol=tol, sparsity_factor=sparsity_factor)
 
-
+    a_f = model_f._parameters[0]
+    q_f = model_f._parameters[2]
 
 
     # with open('y_' + '.obj', 'wb') as fh:
