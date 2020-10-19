@@ -370,6 +370,7 @@ if __name__ == '__main__':
     # import scipy.io
     # scipy.io.savemat('y.mat', {'y': y})
     # scipy.io.savemat('f.mat', {'f': f})
+    
     _, m = y.shape
     dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_ = _gc_extraction(y.T, f, r=r_cov*np.eye(m), p=p, p1=p,
                    n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
