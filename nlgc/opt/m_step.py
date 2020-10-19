@@ -290,7 +290,7 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     # q_ /= t
     q_ += beta
     q_ /= (1 + alpha)
-    q[diag_indices] = q_
+    q[diag_indices] = np.abs(q_)
     # if q.min() < 0:
     #     import ipdb;
     #     ipdb.set_trace()
