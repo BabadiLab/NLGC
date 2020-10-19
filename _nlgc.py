@@ -197,7 +197,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
 
     warnings.filterwarnings('ignore')
     model_f.compute_crossvalidation_metric(y)
-    ipdb.set_trace()
+    # ipdb.set_trace()
 
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
@@ -246,9 +246,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
 
         dev_raw_[j, i] = sum(map(lambda x: np.log(model_r._parameters[2][x, x]) - np.log(model_f._parameters[2][x, x]),
                                  target))
-        if dev_raw_[j, i] < 0:
-            warnings.filterwarnings('ignore')
-            ipdb.set_trace()
+        # if dev_raw_[j, i] < 0:
+        #     warnings.filterwarnings('ignore')
+        #     ipdb.set_trace()
         bias_r_[j, i] = model_r.compute_bias_idx(y, target)
         bias_f_[j, i] = model_f.compute_bias_idx(y, target)
 
@@ -427,8 +427,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 #             G_idx.append(i*n_eigenmodes + k)
 #     G_ = G[:, G_idx]
 #     ROIs_idx = list(range(0, len(ROIs_idx)))
-    import ipdb
-    ipdb.set_trace()
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,

@@ -18,7 +18,7 @@ e.set(**kwargs)
 
 
 if __name__ == "__main__":
-    subject = 'R2534'
+    subject = 'R2535'
 
     e.set(subject=subject)
     ds = e.load_epochs(subject, decim=20, ndvar=False, reject=False)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     alpha = 0
     beta = 0
-    lambda_range = np.asanyarray([5, 2, 1, 0.5, 0.2, 0.1, 0])
+    lambda_range = np.asanyarray([5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0]) *1e-1
     # lambda_range = [0.1]
     # lambda_range = [1.5, 1, 0.5]
 
