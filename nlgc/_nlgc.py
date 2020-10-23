@@ -239,6 +239,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         #             alpha=alpha,
         #             beta=beta, **kwargs)
         # print(model_r._lls)
+        warnings.filterwarnings('ignore')
+        ipdb.set_trace()
+
 
         bias_r[j, i] = model_r.compute_bias(y)
 

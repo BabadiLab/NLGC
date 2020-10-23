@@ -55,8 +55,26 @@ def calculate_ss(x_bar, s_bar, b, m, p):
     return s1, s2, s3, n
 
 
+def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, update_only_target=False):
+    if not update_only_target or zeroed_index is None:
+        return _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=max_iter, tol=tol, zeroed_index=zeroed_index,)
+    else:
+        target = np.unique(zeroed_index[0])
+        s1_ = s1[target]
+        a_ = a[target]
+        q_ = q[target, target]
+        if q_.ndim == 1:
+            q_ = q_[:, None]
+        target_ = np.asarray(zeroed_index[0]) - min(zeroed_index[0])
+        source = np.asarray(zeroed_index[1])
+        a_, changes = _solve_for_a(q_, s1_, s2, a_, p1, lambda2, max_iter=max_iter, tol=tol,
+                                   zeroed_index=(target_, source),)
+        a[target] = a_
+        return a, changes
+
+
 # @njit(cache=True)
-def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None,):
+def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None,):
     """Gradient descent to learn a, state-transition matrix
 
     Parameters
@@ -92,15 +110,22 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
     q = np.diag(q)
     qinv = 1 / q
     # qinv = np.ones_like(q)
-    ############################################################################
-    # qinv = np.zeros_like(q)
-    # qinv[q <= 0] = 0
-    # qinv[q > 0] = 1 / q[q > 0]
-    ############################################################################
     qinv = np.expand_dims(qinv, -1)
+    q_inv_sqrt = np.sqrt(qinv)
+
+    d = np.sqrt(np.diag(s2))
+    # d = np.ones_like(d)
+    s2 = s2 / d[:, None]
+    s2 = s2 / d[None, :]
+    s1 = s1 / d[None, :]
+    a = a * d[None, :]
+
+    a = a * q_inv_sqrt
+    s1 = s1 * q_inv_sqrt
+
     # max step size:
-    h_norm = qinv.max()
-    h_norm *= np.linalg.eigvalsh(s2).max()
+    # h_norm = qinv.max()
+    h_norm = np.linalg.eigvalsh(s2).max()
     tau_max = 0.99 / h_norm
 
     _a = np.empty_like(a)
@@ -112,7 +137,7 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
     fs = np.zeros(max_iter+1)
     changes[0] = 1
     num = 1
-    f_old = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, a.dot(s2) * qinv).sum()
+    f_old = -2 * np.einsum('ij,ji->i', a.T, s1).sum() + np.einsum('ij,ji->i', a.T, a.dot(s2)).sum()
     fs[0] = f_old
     temp1 = a.dot(s2)
     # grad = np.zeros_like(a)
@@ -123,22 +148,23 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
         # Calculate gradient
         grad = temp1
         grad -= s1
-        grad *= qinv
+        # grad *= qinv
         grad *= 2
 
-        # #************* make the self history = 0 from lag p1***********
-        for k in range(p1, p):
-            grad.flat[k * m::(p * m + 1)] = 0.0
-        # # *************************************************************
-        if zeroed_index is not None:
-            grad[zeroed_index] = 0.0
+        # # #************* make the self history = 0 from lag p1***********
+        # for k in range(p1, p):
+        #     grad.flat[k * m::(p * m + 1)] = 0.0
+        # # # *************************************************************
+        # if zeroed_index is not None:
+        #     grad[zeroed_index] = 0.0
 
         # Find opt step-size
         warnings.filterwarnings('error')
         try:
             # tau = 0.5 * (grad * grad).sum() / (np.diag(grad.dot(s2.dot(grad.T))) * qinv.ravel()).sum()
             temp2 = grad.dot(s2.T)
-            den = ((temp2 * grad).sum(axis=1) * qinv.ravel()).sum()
+            # den = ((temp2 * grad).sum(axis=1) * qinv.ravel()).sum()
+            den = ((temp2 * grad).sum(axis=1)).sum()
             num = (grad * grad).sum()
             tau = 0.5 * num / den
             tau = max(tau, tau_max)
@@ -162,7 +188,8 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
                 a[zeroed_index] = 0.0
 
             temp1 = a.dot(s2)
-            f_new = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, temp1 * qinv).sum()
+            # f_new = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, temp1 * qinv).sum()
+            f_new = -2 * np.einsum('ij,ji->i', a.T, s1).sum() + np.einsum('ij,ji->i', a.T, temp1).sum()
             diff = (a - _a)
             f_new_upper = f_old + (grad * diff).sum() + (diff ** 2).sum() / (2 * tau)
             # print(f_new, f_new_upper)
@@ -180,6 +207,8 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
     # ipdb.set_trace()
     # print(f"grad max: {grad.max()}, grad min: {grad.min()}, lambda:{lambda2}")
     # print(f"starting f {fs[0]}, closing f {f_old}")
+    a = a / d[None, :]
+    a = a / q_inv_sqrt
     return a, changes
 
 
@@ -471,12 +500,23 @@ def test_solve_for_a_and_q(t=1000):
     v.shape = (t, n)
     l = linalg.cholesky(r, lower=True)
     v = v.dot(l.T)
+    # a = np.zeros(p * m * m, dtype=np.float64)
+    # for i, val in zip(np.random.choice(p * m * m, k), np.random.randn(k)):
+    #     a[i] = val
+    # a.shape = (p, m, m)
+    # a[0] /= 1.1 * linalg.norm(a[0])
+    # a[1] /= 1.1 * linalg.norm(a[1])
+
     a = np.zeros(p * m * m, dtype=np.float64)
-    for i, val in zip(np.random.choice(p * m * m, k), np.random.randn(k)):
-        a[i] = val
     a.shape = (p, m, m)
-    a[0] /= 1.1 * linalg.norm(a[0])
-    a[1] /= 1.1 * linalg.norm(a[1])
+
+    a[1, 0, 1] = -0.2
+
+    a[0, 0, 0] = 0.9
+
+    a[0, 1, 1] = 0.9
+
+
     f = np.random.randn(n, m)
     x = np.empty((t, m), dtype=np.float64)
     x[0] = 0.0
@@ -503,6 +543,28 @@ def test_solve_for_a_and_q(t=1000):
     for _ in range(100):
         a_, changes = solve_for_a(q_, s1, s2, a_, p, lambda2=0.1, max_iter=1000, tol=1e-8)
         q_ = solve_for_q(q_, s3, s1, s2, a_, lambda2=0.1)
-        # ipdb.set_trace()
-    warnings.filterwarnings('ignore')
+
+    a__ = np.zeros((m, m * p))
+    a__[:] = 0 * np.reshape(np.swapaxes(a, 0, 1), (m, m * p))
+    a__[:] = a_
+    q__ = 1 * q.copy()
+    i = 0; j = 1
+    for _ in range(100):
+        a__, changes = solve_for_a(q__, s1, s2, a__, p, lambda2=0.1, max_iter=1000, tol=1e-8,
+                                   zeroed_index=[(i, i), (j, j + 3)], update_only_target=True)
+        q__ = solve_for_q(q__, s3, s1, s2, a__, lambda2=0.1)
     ipdb.set_trace()
+
+    import itertools
+    for i, j in itertools.product((0,1,2), repeat=2):
+        if i == j:
+            continue
+        a__ = np.zeros((m, m * p))
+        a__[:] = 0 * np.reshape(np.swapaxes(a, 0, 1), (m, m * p))
+        q__ = 1 * q.copy()
+        for _ in range(100):
+            a__, changes = solve_for_a(q__, s1, s2, a__, p, lambda2=0.1, max_iter=1000, tol=1e-8,
+                                       zeroed_index=[(i,i), (j, j+3)])
+            q__ = solve_for_q(q__, s3, s1, s2, a__, lambda2=0.1)
+        warnings.filterwarnings('ignore')
+        ipdb.set_trace()
