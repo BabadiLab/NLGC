@@ -9,6 +9,7 @@ from tqdm import tqdm
 import numpy as np
 from scipy import linalg, sparse
 import copy
+from mne import (Forward, Label, SourceSpaces)
 from mne.forward import is_fixed_orient
 from mne.minimum_norm.inverse import _check_reference
 from mne.utils import logger, verbose, warn
@@ -24,13 +25,15 @@ import warnings
 
 plt.ion()
 
-def truncatedsvd(a, n_components=2):
+def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
     if n_components > min(*a.shape):
         raise ValueError('n_components={:d} should be smaller than '
                          'min({:d}, {:d})'.format(n_components, *a.shape))
     u, s, vh = linalg.svd(a, full_matrices=False, compute_uv=True,
                           overwrite_a=True, check_finite=True,
                           lapack_driver='gesdd')
+    if return_pecentage_exaplained:
+        return vh[:n_components] * s[:n_components][:, None], s[:n_components].sum() / s.sum()
     return vh[:n_components] * s[:n_components][:, None]
 
 
@@ -231,7 +234,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
         model_r = NeuraLVAR(p, p1, use_lapack=use_lapack)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_init.copy(), restriction=link,
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=None, q_init=q_init.copy(), restriction=link,
                     alpha=alpha,
                     beta=beta, **kwargs)
         # model_r = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
@@ -239,8 +242,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         #             alpha=alpha,
         #             beta=beta, **kwargs)
         # print(model_r._lls)
-        warnings.filterwarnings('ignore')
-        ipdb.set_trace()
+        # warnings.filterwarnings('ignore')
+        # ipdb.set_trace()
 
 
         bias_r[j, i] = model_r.compute_bias(y)
@@ -381,7 +384,24 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     M = np.dot(whitener, M)
     ## copy till here
     # extract label eigenmodes
-    G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+    # G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+    if isinstance(labels, Forward):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels['src']:
+            label_names.extend(label['vertno'])
+    elif isinstance(labels, SourceSpaces):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels: label_names.extend(label['vertno'])
+    elif isinstance(labels, list):
+        if isinstance(labels[0], Label):
+            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
+                                                                   allow_empty=True)
+            label_names = [label.name for label in labels]
+        else:
+            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
+                             'mne.Forward object or list of mne.Labels.')
 
     # test if there are empty columns
     sel = np.any(G, axis=0)
@@ -401,6 +421,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
     ROIs_idx = list()
+    ipdb.set_trace()
 
     if ROIs_names == None:
         ROIs_idx = list(range(0, len(labels)))
@@ -418,18 +439,12 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     G /= G_normalizing_factor[None, :]
     G *= np.sqrt(M_normalizing_factor)
     r = 1
-    label_names = [label.name for label in labels]
-# ##################################################################
-#     label_names_ = []
-#     for ROI in ROIs_idx:
-#         label_names_.append(label_names[ROI])
-#
-#     G_idx = []
-#     for i in ROIs_idx:
-#         for k in range(0, n_eigenmodes):
-#             G_idx.append(i*n_eigenmodes + k)
-#     G_ = G[:, G_idx]
-#     ROIs_idx = list(range(0, len(ROIs_idx)))
+    fig, ax = plt.subplots()
+    data = G.T.dot(G) / M_normalizing_factor
+    vmax = max(data.max(), -data.min())
+    im = ax.matshow(data, vmax=vmax, vmin=-vmax, cmap='seismic')
+    ipdb.set_trace()
+
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
@@ -438,6 +453,42 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                             label_vertidx=label_vertidx, use_lapack=use_lapack)
 
     return out_obj
+
+
+
+def reduce_lead_field(forward, src, n_eigenmodes, data=None):
+    import mne
+    if data is None:
+        logger.info('Using the raw forward solution')
+        data = np.swapaxes(forward['sol']['data'], 0, 1)  # (n_sources, n_channels)
+    data = data.copy()
+
+    if isinstance(src, mne.Forward):
+        src = src['src']
+
+    n_labels = sum([src[i]['nuse'] for i in range(len(src))])
+
+    label_eigenmodes = np.zeros((n_labels * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+    label_vertidx = []
+    i = 0
+    start = 0
+    print(f'src\troi_index\tpercentage explained')
+    for k in range(len(src)):
+        end = start + forward['src'][k]['nuse']
+        data_ = data[start:end]
+        label_vertidx_ = []
+        for roi_index in range(src[k]['nuse']):
+            choice = [1 if j in src[k]['pinfo'][roi_index] else 0 for j in forward['src'][k]['vertno']]
+            label_eigenmode, percentage_explained = truncatedsvd(data_[np.asanyarray(choice).astype(np.bool)],
+                                                                 n_eigenmodes, return_pecentage_exaplained=True)
+            label_vertidx_.append(np.nonzero(choice)[0])
+            label_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = label_eigenmode
+            print(f'{k}\t{roi_index}\t{percentage_explained}')
+            i += 1
+            start = end
+        label_vertidx.append(label_vertidx_)
+    src_flips = [None] * n_labels
+    return label_eigenmodes.T, label_vertidx, src_flips
 
 
 def old_bias(model, reg_idx, n_eigenmodes=1):

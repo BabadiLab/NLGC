@@ -1,9 +1,4 @@
-import mne
-import os
-import glob
-from _nlgc import *
-import ipdb
-from codetiming import Timer
+from nlgc._nlgc import *
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -13,19 +8,11 @@ from csslaging import er_cov as cov
 
 from matplotlib import pyplot as plt
 
-kwargs = {'raw': 'tsss-1-8-causal-ica-apply', 'src': 'ico-4', 'parc': 'aparc', 'epoch': 'all', 'session': 'Cocktail'}
+kwargs = {'raw': 'tsss-1-8-causal-ica-apply', 'parc': 'aparc', 'epoch': 'all', 'session': 'Cocktail'}
 e.set(**kwargs)
 
 
 if __name__ == "__main__":
-    subject = 'R2535'
-
-    e.set(subject=subject)
-    ds = e.load_epochs(subject, decim=20, ndvar=False, reject=False)
-    labels = e._load_labels()
-    labels_as_list = list(labels.values())
-    forward = e.load_fwd(ndvar=False)
-
     order = 4
     p1 = 4
     n_eigenmodes = 2
@@ -35,12 +22,25 @@ if __name__ == "__main__":
     tol = 1e-5
     sparsity_factor = 0.0
 
-    ROIs_names = ['rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis', 'parstriangularis',
-                  'superiortemporal',
-                  'middletemporal', 'transversetemporal']
+    subject = 'R2533'
 
-    resticted_labels_as_list = [labels[f"{roi_name}-{hemi}"] for roi_name, hemi in
-                                itertools.product(ROIs_names, ('lh', 'rh'))]
+    e.set(subject=subject)
+    ds = e.load_epochs(subject, decim=20, ndvar=False, reject=False)
+    forward = e.load_fwd(src='ico-4', ndvar=False)
+
+
+
+    labels_as_list = e.load_src(src='ico-2')
+    ROIs_names =None
+
+    # labels = e._load_labels()
+    # labels_as_list = list(labels.values())
+    # ROIs_names = ['rostralmiddlefrontal', 'caudalmiddlefrontal', 'parsopercularis', 'parstriangularis',
+    #               'superiortemporal',
+    #               'middletemporal', 'transversetemporal']
+    #
+    # resticted_labels_as_list = [labels[f"{roi_name}-{hemi}"] for roi_name, hemi in
+    #                             itertools.product(ROIs_names, ('lh', 'rh'))]
 
     alpha = 0
     beta = 0
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     evoked = evoked.filter(None, 4.5, phase='minimum')
     evoked = evoked.decimate(8, offset=3)
     evoked.crop(tmin=20, tmax=60)
-    out = nlgc_map(subject, evoked, forward, cov, resticted_labels_as_list, order=order, self_history=p1,
+    out = nlgc_map(subject, evoked, forward, cov, labels_as_list, order=order, self_history=p1,
                    n_eigenmodes=n_eigenmodes, alpha=alpha, beta=beta, ROIs_names=ROIs_names, n_segments=n_segments,
                    lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                    sparsity_factor=sparsity_factor, depth=0.0, use_lapack=True)
