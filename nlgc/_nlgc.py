@@ -455,7 +455,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     return out_obj
 
 
-
 def reduce_lead_field(forward, src, n_eigenmodes, data=None):
     import mne
     if data is None:
@@ -493,21 +492,19 @@ def prepare_label_extraction(labels, src):
     return label_vertidx
 
 
-# def assign_labels(labels, src_target, src_origin):
-#     label_vertidx = prepare_label_extraction(labels, src_origin)
-#     vertno = [s['vertno'] for s in src_target]
-#     label_vertidx = []
-#     for label in labels:
-#         if label.hemi == 'lh':
-#             this_vertices = np.intersect1d(vertno[0], label.vertices)
-#             vertidx = np.searchsorted(vertno[0], this_vertices)
-#         elif label.hemi == 'rh':
-#             this_vertices = np.intersect1d(vertno[1], label.vertices)
-#             vertidx = len(vertno[0]) + np.searchsorted(vertno[1], this_vertices)
-#         if len(vertidx) == 0:
-#             vertidx = None
-#         label_vertidx.append(vertidx)
-#     return label_vertidx
+def assign_labels(labels, src_target, src_origin, thresh=0):
+    label_vertidx_origin = prepare_label_extraction(labels, src_origin)
+    group_vertidx, _, _ = _prepare_leadfield_reduction(src_target, src_origin)
+    label_vertidx = []
+    for this_label_vertidx_origin in label_vertidx_origin:
+        this_label_vertidx = []
+        for i, this_group_vertidx in enumerate(group_vertidx):
+            this_vertices = np.intersect1d(this_group_vertidx, this_label_vertidx_origin)
+            if len(this_vertices) > thresh:
+                this_label_vertidx.append(i)
+        this_label_vertidx = np.asanyarray(this_label_vertidx)
+        label_vertidx.append(this_label_vertidx)
+    return label_vertidx
 
 
 def _prepare_leadfield_reduction(src_target, src_origin):
