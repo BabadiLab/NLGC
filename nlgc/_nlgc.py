@@ -466,29 +466,67 @@ def reduce_lead_field(forward, src, n_eigenmodes, data=None):
     if isinstance(src, mne.Forward):
         src = src['src']
 
-    n_labels = sum([src[i]['nuse'] for i in range(len(src))])
+    grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src, forward['src'])
+    group_eigenmodes = np.zeros((sum(n_groups) * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+    for i, this_grouped_vertidx in enumerate(grouped_vertidx):
+        this_group_eigenmodes, percentage_explained = truncatedsvd(data[this_grouped_vertidx],
+                                                             n_eigenmodes, return_pecentage_exaplained=True)
+        group_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = this_group_eigenmodes
 
-    label_eigenmodes = np.zeros((n_labels * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+    src_flips = [None] * sum(n_groups)
+    return group_eigenmodes.T, grouped_vertidx, src_flips
+
+
+def prepare_label_extraction(labels, src):
+    vertno = [s['vertno'] for s in src]
     label_vertidx = []
-    i = 0
-    start = 0
-    print(f'src\troi_index\tpercentage explained')
-    for k in range(len(src)):
-        end = start + forward['src'][k]['nuse']
-        data_ = data[start:end]
-        label_vertidx_ = []
-        for roi_index in range(src[k]['nuse']):
-            choice = [1 if j in src[k]['pinfo'][roi_index] else 0 for j in forward['src'][k]['vertno']]
-            label_eigenmode, percentage_explained = truncatedsvd(data_[np.asanyarray(choice).astype(np.bool)],
-                                                                 n_eigenmodes, return_pecentage_exaplained=True)
-            label_vertidx_.append(np.nonzero(choice)[0])
-            label_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = label_eigenmode
-            print(f'{k}\t{roi_index}\t{percentage_explained}')
-            i += 1
-            start = end
-        label_vertidx.append(label_vertidx_)
-    src_flips = [None] * n_labels
-    return label_eigenmodes.T, label_vertidx, src_flips
+    for label in labels:
+        if label.hemi == 'lh':
+            this_vertices = np.intersect1d(vertno[0], label.vertices)
+            vertidx = np.searchsorted(vertno[0], this_vertices)
+        elif label.hemi == 'rh':
+            this_vertices = np.intersect1d(vertno[1], label.vertices)
+            vertidx = len(vertno[0]) + np.searchsorted(vertno[1], this_vertices)
+        if len(vertidx) == 0:
+            vertidx = None
+        label_vertidx.append(vertidx)
+    return label_vertidx
+
+
+# def assign_labels(labels, src_target, src_origin):
+#     label_vertidx = prepare_label_extraction(labels, src_origin)
+#     vertno = [s['vertno'] for s in src_target]
+#     label_vertidx = []
+#     for label in labels:
+#         if label.hemi == 'lh':
+#             this_vertices = np.intersect1d(vertno[0], label.vertices)
+#             vertidx = np.searchsorted(vertno[0], this_vertices)
+#         elif label.hemi == 'rh':
+#             this_vertices = np.intersect1d(vertno[1], label.vertices)
+#             vertidx = len(vertno[0]) + np.searchsorted(vertno[1], this_vertices)
+#         if len(vertidx) == 0:
+#             vertidx = None
+#         label_vertidx.append(vertidx)
+#     return label_vertidx
+
+
+def _prepare_leadfield_reduction(src_target, src_origin):
+    vertno_origin = [s['vertno'] for s in src_origin]
+    vertno_target = [s['vertno'] for s in src_target]
+    pinfo_target = [s['pinfo'] for s in src_target]
+    n_verts = [s['nuse'] for s in src_origin]
+    n_groups = [s['nuse'] for s in src_target]
+    grouped_vertidx = []
+    for k, (this_vertno_target, this_pinfo_target, this_vertno_origin) in enumerate(zip(vertno_target, pinfo_target,
+                                                                            vertno_origin)):
+        offset = 0 if k == 0 else n_verts[k - 1]
+        for this_vert, this_pinfo in zip(this_vertno_target, this_pinfo_target):
+            this_vertices = np.intersect1d(this_vertno_origin, this_pinfo)
+            vertidx = offset + np.searchsorted(this_vertno_origin, this_vertices)
+            if len(vertidx) == 0:
+                vertidx = None
+            grouped_vertidx.append(vertidx)
+    return grouped_vertidx, n_groups, n_verts
 
 
 def old_bias(model, reg_idx, n_eigenmodes=1):
