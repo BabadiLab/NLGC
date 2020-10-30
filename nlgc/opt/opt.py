@@ -134,8 +134,7 @@ class NeuraLVAR:
             source_fits.append(compute_cross_ll(x_, a_upper, q_upper, m, p))
             # stopping cond
             if i > 0:
-                # rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
-                rel_change = (Qvals[i - 1] - Qvals[i]) / Qvals[i - 1]
+                rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
                 if np.abs(rel_change) < rel_tol:
                     break
                 # print(f"{i}: rel change:{np.abs(rel_change)}")
@@ -287,6 +286,9 @@ class NeuraLVAR:
                                                                max_cyclic_iter=max_cyclic_iter, a_init=a_init,
                                                                q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
 
+        # import ipdb
+        # ipdb.set_trace()
+        
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
@@ -581,9 +583,7 @@ class NeuraLVARCV_(NeuraLVAR):
         y_train, y_test = y[:, train], y[:, test]
         xs = None
         logger.debug(f"{current_process().name} successfully split the data")
-        lambda_range = lambda_range * np.sqrt(y.shape[-1])
-        val = 0
-        for i, lambda2 in enumerate(lambda_range):
+        for i, lambda2 in enumerate(lambda_range * np.sqrt(y.shape[-1])):
             lambda2 = lambda2 / np.sqrt(y_train.shape[-1])
             logger.debug(f"{current_process().name} {split} doing {lambda2}")
             if i > 0:
@@ -592,19 +592,18 @@ class NeuraLVARCV_(NeuraLVAR):
             a_, q_upper, lls, _, _, _, xs, _ = \
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter,
                           max_cyclic_iter=max_cyclic_iter,
-                          a_init=a_init, q_init=q_init, rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
-            # cross_ll = self.compute_ll(y_test, (a_, f, q_upper, r))
-            cross_ll = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
-            # cross_ll = self.compute_Q(y_test, (a_, f, q_upper, r))
-            # cross_ll = self.compute_squared_loss(y_test, (a_, f, q_upper, r))
-            # cross_ll = self.compute_logsum_q(y, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-            #                                  rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
-            cv[split, i] = cross_ll
-            val += cross_ll
+                          a_init=a_init, q_init=q_init.copy(), rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
+            cv[0, split, i] = self.compute_ll(y_test, (a_, f, q_upper, r))
+            cv[1, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
+            cv[2, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
+            cv[3, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                                             rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
+
+
 
         for shm in (shm_y, shm_f, shm_r, shm_c):
             shm.close()
-        return val
+        return None
 
     def fit(self, y, f, r, lambda_range=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None,
             rel_tol=0.0001, restriction=None, alpha=0.5, beta=0.1):
@@ -650,7 +649,7 @@ class NeuraLVARCV_(NeuraLVAR):
             cvsplits = [split for split in kf.split(y.T)]
         # import ipdb; ipdb.set_trace()
 
-        cv_mat = np.zeros((len(cvsplits), len(lambda_range)), dtype=y.dtype)
+        cv_mat = np.zeros((4, len(cvsplits), len(lambda_range)), dtype=y.dtype)
         # Use parallel processing
         # A, b, mu_range, cv_mat needs to shared across processes
         shared_y, info_y, shm_y = create_shared_mem(y)
@@ -666,8 +665,10 @@ class NeuraLVARCV_(NeuraLVAR):
         print('Done cross-validation')
 
         self.cv_lambdas = lambda_range
-        cv_mat[:, :] = np.reshape(shared_cv_mat, cv_mat.shape)
+        cv_mat[:] = np.reshape(shared_cv_mat, cv_mat.shape)
         self.mse_path = cv_mat
+        # import ipdb
+        # ipdb.set_trace()
         for shm in (shm_y, shm_f, shm_r):
             shm.close()
             shm.unlink()
@@ -677,7 +678,7 @@ class NeuraLVARCV_(NeuraLVAR):
         # ipdb.set_trace()
 
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        index = self.mse_path.mean(axis=0).argmax()
+        index = self.mse_path[0].mean(axis=0).argmax()
 
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')

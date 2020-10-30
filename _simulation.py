@@ -120,51 +120,64 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
             if j in labels[i].name:
             # print(i, labels[i].name)
                 auditory_ROIs.append(i)
+    # [1, 6, 10, 19, 23, 31, 38, 43, 47, 49, 50, 64, 65, 66]
+    auditory_ROIs = [1, 6, 10, 19, 23, 31, 38, 43, 47, 49, 50, 64, 65, 66]
+    auditory_ROIs = [2, 6]
 
-
-
-    # correlation = 1
-    # while correlation == 1:
-    #     selected_ROIs = random.sample(auditory_ROIs, k=m_active)
-    #
-    #     g = np.empty((n, m_active))
-    #     for i in range(0, m_active):
-    #         idx = selected_ROIs[i]
-    #         i0 = label_vertidxs[idx][:]
-    #         # selected_srcs = random.sample(range(0, len(label_vertidxs[idx][:])), k=3)
-    #         i0 = label_vertidxs[idx][:]
-    #         g0 = G[:, i0].dot(src_flips[idx])
-    #         g0 = g0 / np.sqrt(g0.T.dot(g0))
-    #         g[:, i] = g0[:, 0]
-    #
-    #     correlation = check_uncorrelated_columns(g, 0.9)
+    G_temp = np.empty((155,1))
 
     # selected_ROIs = [0, 1, 2, 3, 4]
     selected_ROIs = auditory_ROIs
     g = np.empty((n, m_active))
     for i in range(0, m_active):
         idx = selected_ROIs[i]
-        i0 = label_vertidxs[idx][:]
-        # selected_srcs = random.sample(range(0, len(label_vertidxs[idx][:])), k=3)
-        i0 = label_vertidxs[idx][:]
+        i0 = label_vertidxs[idx]
+        # W = np.random.uniform(0,1, len(i0))
+        # W = np.random.standard_normal(len(i0))
+        # W /= np.sum(W)
+        # ws = src_flips[idx]
+        # w_ = np.zeros((len(i0), 1))
+        # w_[:, 0] = np.diag(ws * W)
+        # w_[:, 0] = ws
+
+
         g0 = G[:, i0].dot(src_flips[idx])
-        # g0 = g0 / np.sqrt(g0.T.dot(g0))
         g0 = g0 / len(i0)
+        g0 = g0 / np.sqrt(g0.T.dot(g0))
         g[:, i] = g0[:, 0]
 
+        ############################################
+        g_ = np.zeros((n, len(i0)))
+        for k in range(0, len(i0)):
+            # g_[:, k] = src_flips[idx][k]*G[:, i0[k]]
+            g_[:, k] = G[:, i0[k]]
+
+        u, s, _ = np.linalg.svd(g_)
+        k1 = u[0]#*np.sqrt(s[0])
+        k2 = u[1]#*np.sqrt(s[1])
+        k3 = u[2]#*np.sqrt(s[1])
+        k4 = u[3]#*np.sqrt(s[1])
+        k5 = u[4]#*np.sqrt(s[1])
+        K = np.vstack((k1, k2, k3, k4, k5))
+        G_temp = np.hstack((G_temp, K.T))
+
+
+    extracted_G_ = G_temp[:, 1:]
+    ############################################
+
+    selected_ROIs = auditory_ROIs
     selected_ROIs_ = list()
     for k in range(0, len(selected_ROIs)):
         selected_ROIs_.append([i for i, value in enumerate(auditory_ROIs) if value == selected_ROIs[k]][0])
 
-    print(selected_ROIs)
-
-    # ipdb.set_trace()
+    # print(selected_ROIs)
+    #
     Y = X.dot(g.T)
     px = Y.dot(Y.T).trace()
 
     noise = np.random.standard_normal(Y.shape)
     pn = noise.dot(noise.T).trace()
-    multiplier = 1e4*pn/px
+    multiplier = 1e2*pn/px
 
     Y += noise/np.sqrt(multiplier)
     r_cov = 1/multiplier
@@ -176,41 +189,79 @@ def simulate_data(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxi
     # pickle.dump(Y, 'sim_data.pickled')
 
     extracted_G, _, _ = _extracted_fwd(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
-    extracted_G = extracted_G / np.sqrt(np.sum(extracted_G**2, axis=0))
-    extracted_G_ = np.empty((n, len(auditory_ROIs)*n_eigenmodes))
-    for i in range(0, len(auditory_ROIs)):
-        extracted_G_[:, i*n_eigenmodes: (i+1)*n_eigenmodes] = extracted_G[:, auditory_ROIs[i]*n_eigenmodes: (auditory_ROIs[i]+1)*n_eigenmodes]
+    # extracted_G = extracted_G / np.sqrt(np.sum(extracted_G**2, axis=0))
+    # extracted_G_ = np.empty((n, len(auditory_ROIs)*n_eigenmodes))
+    # for i in range(0, len(auditory_ROIs)):
+    #     extracted_G_[:, i*n_eigenmodes: (i+1)*n_eigenmodes] = extracted_G[:, auditory_ROIs[i]*n_eigenmodes: (auditory_ROIs[i]+1)*n_eigenmodes]
 
-    # print(selected_ROIs_)
+    ipdb.set_trace()
 
-    # ipdb.set_trace()
+    # return extracted_G
+    return Y, extracted_G_, selected_ROIs_, r_cov, X
+    # return Y, extracted_G, selected_ROIs_, r_cov, X
 
-    return Y, extracted_G_, selected_ROIs_, r_cov
+def simulate_data_(evoked, forward, noise_cov, labels, loose=0.0, depth=0.8, maxit=10000, tol=1e-6, pca=True,
+        rank=None, mode='svd_flip', n_eigenmodes=1,m=15):
+    from mne.forward import is_fixed_orient
+    from mne.minimum_norm.inverse import _check_reference
+    from mne.utils import logger, verbose, warn
+    from mne.inverse_sparse.mxne_inverse import _prepare_gain
 
+    _check_reference(evoked)
+
+    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
+        forward, evoked.info, noise_cov, pca, depth, loose, rank)
+
+    ### gain is already whitened!
+
+    if not is_fixed_orient(forward):
+        raise ValueError(f"Cannot work with free orientation forward: {forward}")
+
+    # G = _undo_source_weighting(gain, source_weighting)
+    G = gain.copy()
+    label_vertidxs, src_flips = _extract_label_eigenmodes(forward, labels)
+
+    n, _ = G.shape
+
+    import random
+    # ROIs = random.sample(range(68), m)
+    ROIs = list(range(0,m))
+    f = np.zeros((n, len(ROIs)))
+    c = 0
+    for i in ROIs:
+        i0 = label_vertidxs[i]
+        # idx = random.sample(range(len(i0)), 1)
+        idx = random.sample(range(3), 1)
+        f0 = G[:, i0[idx]]*src_flips[i][idx]
+        f0 = f0 / np.sqrt(f0.T.dot(f0))
+        f[:, c] = f0[:, 0]
+        c+=1
+
+    y, f, p, r_cov, JG = sim_rnd_real_F(f)
+
+    return y, f, p, r_cov, JG
 
 def simulate_AR_process():
-    m, p, t = 5, 2, 400
-    np.random.seed(0)
+    m, p, t = 2, 1, 1000
+    # np.random.seed(1)
 
-    q =  np.eye(m)
-    q[0, 0] = 10
-    q[1, 1] = 11
-    q[2, 2] = 12.5
-    q[3, 3] = 11
-    q[4, 4] = 13
-    q *= 0.01
+    q =  1e-3*np.eye(m)
+    # q[0, 0] = 1e-2
+    # q[1, 1] = 1e-2
+    # q[2, 2] = 1e-2
+    # q[3, 3] = 1e-3
 
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
 
-    a[0, 0, 0] = 0.5
-    a[0, 1, 1] = 0.5
-    a[0, 2, 2] = 0.5
-    a[0, 3, 3] = 0.5
-    a[0, 4, 4] = 0.5
+    a[0, 0, 0] = 0.9
+    a[0, 1, 1] = 0.9
+    # a[0, 2, 2] = 0.5
+    # a[0, 3, 3] = 0.5
+    # a[0, 4, 4] = 0.5
 
-    a[1, 1, 0] = 0.2
-    a[0, 2, 3] = -0.2
+    a[0, 1, 0] = -0.2
+    # a[0, 2, 1] = -0.2
 
 
     u = np.random.standard_normal(m * t)
@@ -229,7 +280,6 @@ def simulate_AR_process():
 
     return x
 
-
 def missed_false_detection(J, J_est):
 
     n, _ = J.shape
@@ -246,38 +296,65 @@ def missed_false_detection(J, J_est):
 
     return missed_det, false_det
 
-def simulation_rnd():
-
-    n, nx, n_eigenmodes, p = 2, 2, 1, 2
-    np.random.seed(0)
+def simulation_rnd(f=None):
+    #                       155, 136,   4
+    n, nx, n_eigenmodes, p = 20, 15, 1, 4
+    # np.random.seed(0)
 
     m = nx * n_eigenmodes
 
-    t = 100
+    t = 10000
 
     r = np.eye(n)
-    q = 0.1 * np.eye(m)
-    q[0, 0] = 10
-    q[1, 1] = 11
-    # q[2, 2] = 8
-    # q[3, 3] = 9
-    # q[4, 4] = 11
-    # q[5, 5] = 9.5
-    # q[6, 6] = 10.3
-    # q[7, 7] = 9.4
-    # q[8, 8] = 10.1
-    # q[9, 9] = 12.2
+    q = np.eye(m)
+    # q[0, 0] = 1
+    # q[1, 1] = 1
+    # q[2, 2] = 1
+    # q[3, 3] = 1
+    # q[4, 4] = 1
+    # q[5, 5] = 1
+    # q[6, 6] = 1
+
 
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
 
-    a[0, 0, 1] = -0.8
+    a[0, 0, 1] = -0.1
+    a[1, 0, 7] = -0.3
 
-    a[0, 0, 0] = 0.2
+    a[0, 1, 0] = -0.2
+    a[0, 1, 3] = 0.3
+    a[0, 1, 4] = -0.2
 
-    a[1, 1, 1] = 0.2
+    a[1, 2, 7] = -0.35
 
-    # a[1, 1, 4] = -0.8
+    a[1, 4, 6] = 0.3
+
+    a[1, 5, 4] = -0.3
+    a[2, 5, 6] = 0.3
+
+    a[2, 8, 9] = 0.2
+    a[2, 9, 8] = -0.2
+
+    a[3, 10, 12] = -0.25
+    a[3, 11, 10] = 0.25
+    a[3, 12, 11] = -0.25
+
+    a[1, 13, 14] = -0.1
+    a[1, 14, 13] = 0.15
+
+    temp_JG = np.sum(np.abs(a), axis=0)
+    JG = temp_JG != 0
+
+    a[0, 0, 0] = 0.8
+    a[1, 1, 1] = 0.9
+    a[1, 5, 5] = 0.45
+    a[1, 6, 6] = -0.45
+    a[2, 8, 8] = -0.6
+    a[2, 9, 9] = 0.5
+    a[2, 13, 13] = 0.65
+    a[2, 14, 14] = 0.65
+
 
     # a[2, 2, 1] = 0.35
 
@@ -316,8 +393,90 @@ def simulation_rnd():
     l = linalg.cholesky(r, lower=True)
     v = v.dot(l.T)
 
-    # f = np.random.randn(n, m)
-    f = np.eye(n)
+    if f is None:
+        f = np.random.randn(n, m)
+        # f = np.eye(n)
+        # f /= np.sqrt(f ** 2).sum(axis=0)
+        f_normalizing_factor = np.sqrt(np.sum(f ** 2, axis=0))
+        f /= f_normalizing_factor[None, :]
+
+    x = np.empty((t, m), dtype=np.float64)
+    for i in range(p):
+        x[i] = 0.0
+
+    for i in range(p, t):
+        x[i] = u[i]
+        for k in range(p):
+            x[i] += a[k].dot(x[i - k - 1])
+    r_cov = 1
+    y_ = x.dot(f.T)
+    y = 10 * np.sqrt((v ** 2).sum() / (y_ ** 2).sum()) * y_ + v
+
+    return y, f, p, n_eigenmodes, r_cov, JG
+
+def sim_rnd_real_F(f):
+
+    t, p = 1000, 4
+
+    n, m = f.shape
+
+    r = np.eye(n)
+    q = 1e-3*np.eye(m)
+    for i in range(0,15):
+        q[i, i] = 1
+
+    a = np.zeros(p * m * m, dtype=np.float64)
+    a.shape = (p, m, m)
+
+    a[0, 0, 1] = -0.1
+    a[1, 0, 7] = -0.3
+
+    a[0, 1, 0] = -0.2
+    a[0, 1, 3] = 0.3
+    a[0, 1, 4] = -0.2
+
+    a[1, 2, 7] = -0.35
+
+    a[1, 4, 6] = 0.3
+
+    a[1, 5, 4] = -0.3
+    a[2, 5, 6] = 0.3
+
+    a[2, 8, 9] = 0.2
+    a[2, 9, 8] = -0.2
+
+    a[3, 10, 12] = -0.25
+    a[3, 11, 10] = 0.25
+    a[3, 12, 11] = -0.25
+
+    a[1, 13, 14] = -0.1
+    a[1, 14, 13] = 0.15
+
+    temp_JG = np.sum(np.abs(a), axis=0)
+    JG = temp_JG != 0
+
+    a[0, 0, 0] = 0.8
+    a[1, 1, 1] = 0.9
+    a[1, 5, 5] = 0.45
+    a[1, 6, 6] = -0.45
+    a[2, 8, 8] = -0.6
+    a[2, 9, 9] = 0.5
+    a[2, 13, 13] = 0.65
+    a[2, 14, 14] = 0.65
+
+    # f_normalizing_factor = np.sqrt(np.sum(f ** 2, axis=0))
+    # f /= f_normalizing_factor[None, :]
+
+    sn = np.random.standard_normal((m + n) * t)
+    u = sn[:m * t]
+    u.shape = (t, m)
+    l = linalg.cholesky(q, lower=True)
+    u = u.dot(l.T)
+    v = sn[m * t:]
+    v.shape = (t, n)
+    l = linalg.cholesky(r, lower=True)
+    v = v.dot(l.T)
+
     x = np.empty((t, m), dtype=np.float64)
     for i in range(p):
         x[i] = 0.0
@@ -327,11 +486,16 @@ def simulation_rnd():
         for k in range(p):
             x[i] += a[k].dot(x[i - k - 1])
 
-    y = x.dot(f.T) + v
+    r_cov = 1
+    y_ = x.dot(f.T)
+    y = 10 * np.sqrt((v ** 2).sum() / (y_ ** 2).sum()) * y_ + v
 
-    return y, f, p, n_eigenmodes
+    return y, f, p, r_cov, JG
+
+
 
 if __name__ == '__main__':
+
 
     filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
     logging.basicConfig(filename=filename, level=logging.DEBUG)
@@ -344,43 +508,62 @@ if __name__ == '__main__':
     fname_labels = os.path.join(behrad_root, 'test', 'labels', 'R2533-*.label')
     labels = [mne.read_label(fname_label) for fname_label in glob.glob(fname_labels)]
 
-    n_eigenmodes = 2
-    p = 2
+    n_eigenmodes = 1
+    p = 1
     n_segments = 1
-    y, f, selected_ROIs, r_cov = simulate_data(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes)
-    y, f, p, n_eigenmodes = simulation_rnd()
+
     alpha = 0
     beta = 0
-    lambda_range = [5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
-    # lambda_range = [10,9,8,7,6,5,4]
-    max_iter = 500
-    max_cyclic_iter = 1
+    # lambda_range = np.asanyarray([5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01])
+    lambda_range = None
+    max_iter = 100
+    max_cyclic_iter = 3
     tol = 1e-5
-    sparsity_factor = 0
+    sparsity_factor = 0.0
 
-    x_ = simulate_AR_process()
-    fig, ax = plt.subplots()
-    ax.plot(x_)
-    fig.show()
+    total_trials = 5
+    m = 40
+    d = np.zeros((total_trials,m,m))
+    d_ = np.empty_like(d)
+    missed_det = np.zeros((total_trials,1))
+    false_det = np.zeros((total_trials,1))
 
+    for i in range(0, total_trials):
+        y, f_, p, r_cov, JG = simulate_data_(evoked[0], forward, er_cov, labels, n_eigenmodes=n_eigenmodes, m=m)
 
+        n, m = f_.shape
 
-    # with open('y_.obj', 'rb') as fp: y = pickle.load(fp)
-    # with open('f_.obj', 'rb') as fp: f = pickle.load(fp)
-    # import scipy.io
-    # scipy.io.savemat('y.mat', {'y': y})
-    # scipy.io.savemat('f.mat', {'f': f})
-    
-    _, m = y.shape
-    dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_ = _gc_extraction(y.T, f, r=r_cov*np.eye(m), p=p, p1=p,
-                   n_eigenmodes=n_eigenmodes, ROIs=[], alpha=alpha, beta=beta,
-                   lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-                   tol=tol, sparsity_factor=sparsity_factor)
-
-    a_f = model_f._parameters[0]
-    q_f = model_f._parameters[2]
+        dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_ = _gc_extraction(y.T, f_, r=r_cov*np.eye(n), p=p, p1=p,
+                       n_eigenmodes=n_eigenmodes, ROIs=list(range(0,m // n_eigenmodes)), alpha=alpha, beta=beta,
+                       lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                       tol=tol, sparsity_factor=sparsity_factor)
+        d[i] = dev_raw.copy()
+        print(np.floor(d[i]))
+        J = fdr_control(d[i], p, 0.1)
 
 
+        missed_det[i], false_det[i] = missed_false_detection(JG, J)
+        print('missed: ', missed_det[i])
+        print('false: ', false_det[i])
+
+
+    # d_avg = d.mean(axis=0)
+    # d_std = d.std(axis=0)
+    # a_f = model_f._parameters[0]
+    # q_f = model_f._parameters[2]
+
+
+    # print(np.floor(d_avg))
+    #
+    # J = fdr_control(d_avg, p, 0.1)
+    # fig , ax = plt.subplots(3)
+    # ax[0].matshow(JG)
+    # ax[1].matshow(J)
+    # cax = ax[2].matshow(d_avg)
+    # fig.colorbar(cax)
+
+
+    # print(np.abs(a_f[0, ::2, ::2]) + np.abs(a_f[0, 1::2, 1::2]) )
     # with open('y_' + '.obj', 'wb') as fh:
     #     pickle.dump(y, fh)
     #

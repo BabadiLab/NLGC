@@ -290,7 +290,7 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     # q_ /= t
     q_ += beta
     q_ /= (1 + alpha)
-    q[diag_indices] = q_
+    q[diag_indices] = np.abs(q_)
     # if q.min() < 0:
     #     import ipdb;
     #     ipdb.set_trace()
@@ -458,7 +458,7 @@ def compute_Q(y, x_, s_, b, a, f, q, r, m, p):
 
 def test_solve_for_a_and_q(t=1000):
     # n, m = 155, 6*2*68
-    n, m, p, k = 4, 3, 2, 10
+    n, m, p, k = 3, 3, 2, 10
     q = np.eye(m)
     r = np.eye(n)
 
@@ -471,12 +471,22 @@ def test_solve_for_a_and_q(t=1000):
     v.shape = (t, n)
     l = linalg.cholesky(r, lower=True)
     v = v.dot(l.T)
+    # a = np.zeros(p * m * m, dtype=np.float64)
+    # for i, val in zip(np.random.choice(p * m * m, k), np.random.randn(k)):
+    #     a[i] = val
+    # a.shape = (p, m, m)
+    # a[0] /= 1.1 * linalg.norm(a[0])
+    # a[1] /= 1.1 * linalg.norm(a[1])
+
     a = np.zeros(p * m * m, dtype=np.float64)
-    for i, val in zip(np.random.choice(p * m * m, k), np.random.randn(k)):
-        a[i] = val
     a.shape = (p, m, m)
-    a[0] /= 1.1 * linalg.norm(a[0])
-    a[1] /= 1.1 * linalg.norm(a[1])
+
+    a[1, 0, 1] = -0.2
+
+    a[0, 0, 0] = 0.9
+
+    a[0, 1, 1] = 0.9
+
     f = np.random.randn(n, m)
     x = np.empty((t, m), dtype=np.float64)
     x[0] = 0.0
@@ -501,8 +511,8 @@ def test_solve_for_a_and_q(t=1000):
     a_[:] = 0 * np.reshape(np.swapaxes(a, 0, 1), (m, m * p))
     q_ = 1 * q.copy()
     for _ in range(100):
-        a_, changes = solve_for_a(q_, s1, s2, a_, p, lambda2=0.1, max_iter=1000, tol=1e-8)
-        q_ = solve_for_q(q_, s3, s1, s2, a_, lambda2=0.1)
+        a_, changes = solve_for_a(q_, s1, s2, a_, p, lambda2=1, max_iter=1000, tol=1e-8)
+        q_ = solve_for_q(q_, s3, s1, s2, a_, lambda2=1)
         # ipdb.set_trace()
     warnings.filterwarnings('ignore')
     ipdb.set_trace()

@@ -9,6 +9,7 @@ from tqdm import tqdm
 import numpy as np
 from scipy import linalg, sparse
 import copy
+from mne import (Forward, Label, SourceSpaces)
 from mne.forward import is_fixed_orient
 from mne.minimum_norm.inverse import _check_reference
 from mne.utils import logger, verbose, warn
@@ -24,13 +25,15 @@ import warnings
 
 plt.ion()
 
-def truncatedsvd(a, n_components=2):
+def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
     if n_components > min(*a.shape):
         raise ValueError('n_components={:d} should be smaller than '
                          'min({:d}, {:d})'.format(n_components, *a.shape))
     u, s, vh = linalg.svd(a, full_matrices=False, compute_uv=True,
                           overwrite_a=True, check_finite=True,
                           lapack_driver='gesdd')
+    if return_pecentage_exaplained:
+        return vh[:n_components] * s[:n_components][:, None], s[:n_components].sum() / s.sum()
     return vh[:n_components] * s[:n_components][:, None]
 
 
@@ -131,9 +134,9 @@ def expand_roi_indices_as_tup(reg_idx, emod):
     return tuple(range(reg_idx * emod, reg_idx * emod + emod))
 
 
-_default_lambda_range = [5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,]
+_default_lambda_range =  np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,])
 
-def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha=0, beta=0,
+def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
                   tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True):
 
@@ -252,14 +255,33 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
 
         dev_raw_[j, i] = sum(map(lambda x: np.log(model_r._parameters[2][x, x]) - np.log(model_f._parameters[2][x, x]),
                                  target))
-        if dev_raw_[j, i] < 0:
-            warnings.filterwarnings('ignore')
-            ipdb.set_trace()
+        # if dev_raw_[j, i] < 0:
+        #     warnings.filterwarnings('ignore')
+        #     ipdb.set_trace()
         bias_r_[j, i] = model_r.compute_bias_idx(y, target)
         bias_f_[j, i] = model_f.compute_bias_idx(y, target)
 
         # import ipdb;ipdb.set_trace()
         conv_flag[j, i] = len(model_r._lls[0]) == max_iter
+        # ipdb.set_trace()
+        # if j==2 and i==1:
+        #     print(i,'->',j,': ',dev_raw[j, i])
+        #     q_r = model_r._parameters[2]
+        #     a_r = model_r._parameters[0]
+        #     print('variance_r: ', q_r[j,j])
+        #     print('variance_f: ', q_f[j,j])
+        #     x_r = model_r._parameters[4]
+        #     x_f = model_f._parameters[4]
+        #     fig, ax = plt.subplots(3)
+        #     [(a.plot(x_f_),a.plot(x_r_))  for a, x_f_, x_r_ in zip(ax, x_f.T, x_r.T)]
+        #     # ax[0].plot(x_r[:, ])
+        #     # ax[0].set_ylabel('reduced model')
+        #     # ax[1].plot(x_f)
+        #     # ax[1].set_ylabel('full model')
+        #
+        #     fig.show()
+        #     ipdb.set_trace()
+        # ipdb.set_trace()
 
     dev_raw_ *= (y.shape[1] - p)
     return dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_
@@ -384,7 +406,24 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     M = np.dot(whitener, M)
     ## copy till here
     # extract label eigenmodes
-    G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+    # G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+    if isinstance(labels, Forward):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels['src']:
+            label_names.extend(label['vertno'])
+    elif isinstance(labels, SourceSpaces):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels: label_names.extend(label['vertno'])
+    elif isinstance(labels, list):
+        if isinstance(labels[0], Label):
+            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
+                                                                   allow_empty=True)
+            label_names = [label.name for label in labels]
+        else:
+            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
+                             'mne.Forward object or list of mne.Labels.')
 
     # test if there are empty columns
     sel = np.any(G, axis=0)
@@ -433,8 +472,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 #             G_idx.append(i*n_eigenmodes + k)
 #     G_ = G[:, G_idx]
 #     ROIs_idx = list(range(0, len(ROIs_idx)))
-    import ipdb
-    ipdb.set_trace()
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
@@ -443,6 +480,133 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                             label_vertidx=label_vertidx, use_lapack=use_lapack)
 
     return out_obj
+
+def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,
+              mode='svd_flip'):
+    _check_reference(evoked)
+
+    depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
+
+    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
+        forward, evoked.info, noise_cov, pca, depth_dict, loose, rank)
+
+    if not is_fixed_orient(forward):
+        raise ValueError(f"Cannot work with free orientation forward: {forward}")
+
+    # whiten the data
+    logger.info('Whitening data matrix.')
+    ## copy till here
+    # extract label eigenmodes
+    # G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
+    if isinstance(labels, Forward):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels['src']:
+            label_names.extend(label['vertno'])
+    elif isinstance(labels, SourceSpaces):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels: label_names.extend(label['vertno'])
+    elif isinstance(labels, list):
+        if isinstance(labels[0], Label):
+            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
+                                                                   allow_empty=True)
+            label_names = [label.name for label in labels]
+        else:
+            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
+                             'mne.Forward object or list of mne.Labels.')
+
+    # test if there are empty columns
+    sel = np.any(G, axis=0)
+    G = G[:, sel].copy()
+    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
+    src_flip = [i for select, i in zip(sel, src_flip) if select]
+    discarded_labels =[]
+    j = 0
+    for i, sel_ in enumerate(sel[::n_eigenmodes]):
+        if not sel_:
+            discarded_labels.append(labels.pop(i-j))
+            label_vertidx.pop(i-j)
+            j += 1
+    assert j == len(discarded_labels)
+    if j > 0:
+        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
+                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
+
+
+    return G, gain
+
+
+
+def reduce_lead_field(forward, src, n_eigenmodes, data=None):
+    import mne
+    if data is None:
+        logger.info('Using the raw forward solution')
+        data = np.swapaxes(forward['sol']['data'], 0, 1)  # (n_sources, n_channels)
+    data = data.copy()
+
+    if isinstance(src, mne.Forward):
+        src = src['src']
+
+    grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src, forward['src'])
+    group_eigenmodes = np.zeros((sum(n_groups) * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+    for i, this_grouped_vertidx in enumerate(grouped_vertidx):
+        this_group_eigenmodes, percentage_explained = truncatedsvd(data[this_grouped_vertidx],
+                                                             n_eigenmodes, return_pecentage_exaplained=True)
+        group_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = this_group_eigenmodes
+
+    src_flips = [None] * sum(n_groups)
+    return group_eigenmodes.T, grouped_vertidx, src_flips
+
+
+def prepare_label_extraction(labels, src):
+    vertno = [s['vertno'] for s in src]
+    label_vertidx = []
+    for label in labels:
+        if label.hemi == 'lh':
+            this_vertices = np.intersect1d(vertno[0], label.vertices)
+            vertidx = np.searchsorted(vertno[0], this_vertices)
+        elif label.hemi == 'rh':
+            this_vertices = np.intersect1d(vertno[1], label.vertices)
+            vertidx = len(vertno[0]) + np.searchsorted(vertno[1], this_vertices)
+        if len(vertidx) == 0:
+            vertidx = None
+        label_vertidx.append(vertidx)
+    return label_vertidx
+
+
+def assign_labels(labels, src_target, src_origin, thresh=0):
+    label_vertidx_origin = prepare_label_extraction(labels, src_origin)
+    group_vertidx, _, _ = _prepare_leadfield_reduction(src_target, src_origin)
+    label_vertidx = []
+    for this_label_vertidx_origin in label_vertidx_origin:
+        this_label_vertidx = []
+        for i, this_group_vertidx in enumerate(group_vertidx):
+            this_vertices = np.intersect1d(this_group_vertidx, this_label_vertidx_origin)
+            if len(this_vertices) > thresh:
+                this_label_vertidx.append(i)
+        this_label_vertidx = np.asanyarray(this_label_vertidx)
+        label_vertidx.append(this_label_vertidx)
+    return label_vertidx
+
+
+def _prepare_leadfield_reduction(src_target, src_origin):
+    vertno_origin = [s['vertno'] for s in src_origin]
+    vertno_target = [s['vertno'] for s in src_target]
+    pinfo_target = [s['pinfo'] for s in src_target]
+    n_verts = [s['nuse'] for s in src_origin]
+    n_groups = [s['nuse'] for s in src_target]
+    grouped_vertidx = []
+    for k, (this_vertno_target, this_pinfo_target, this_vertno_origin) in enumerate(zip(vertno_target, pinfo_target,
+                                                                            vertno_origin)):
+        offset = 0 if k == 0 else n_verts[k - 1]
+        for this_vert, this_pinfo in zip(this_vertno_target, this_pinfo_target):
+            this_vertices = np.intersect1d(this_vertno_origin, this_pinfo)
+            vertidx = offset + np.searchsorted(this_vertno_origin, this_vertices)
+            if len(vertidx) == 0:
+                vertidx = None
+            grouped_vertidx.append(vertidx)
+    return grouped_vertidx, n_groups, n_verts
 
 
 def old_bias(model, reg_idx, n_eigenmodes=1):
