@@ -190,9 +190,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
     # a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
 
     if len(lambda_range) > 1:
-        model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
+        model_f = NeuraLVARCV_(p, p1, n_eigenmodes, 10, cv, n_jobs, use_lapack=use_lapack)
     else:
-        model_f = NeuraLVAR(p, p1, use_lapack=use_lapack)
+        model_f = NeuraLVAR(p, p1, n_eigenmodes, use_lapack=use_lapack)
         lambda_range = lambda_range[0]
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
@@ -239,8 +239,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
 
-        model_r = NeuraLVAR(p, p1, use_lapack=use_lapack)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init.copy(), q_init=q_init.copy(), restriction=link,
+        model_r = NeuraLVAR(p, p1, n_eigenmodes, use_lapack=use_lapack)
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=None, q_init=q_init.copy(), restriction=link,
                     alpha=alpha,
                     beta=beta, **kwargs)
         # model_r = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
@@ -248,6 +248,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
         #             alpha=alpha,
         #             beta=beta, **kwargs)
         # print(model_r._lls)
+        # warnings.filterwarnings('ignore')
+        # ipdb.set_trace()
+
 
         bias_r[j, i] = model_r.compute_bias(y)
 
@@ -443,6 +446,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
     ROIs_idx = list()
+    ipdb.set_trace()
 
     if ROIs_names == None:
         ROIs_idx = list(range(0, len(labels)))
@@ -460,18 +464,12 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     G /= G_normalizing_factor[None, :]
     G *= np.sqrt(M_normalizing_factor)
     r = 1
-    label_names = [label.name for label in labels]
-# ##################################################################
-#     label_names_ = []
-#     for ROI in ROIs_idx:
-#         label_names_.append(label_names[ROI])
-#
-#     G_idx = []
-#     for i in ROIs_idx:
-#         for k in range(0, n_eigenmodes):
-#             G_idx.append(i*n_eigenmodes + k)
-#     G_ = G[:, G_idx]
-#     ROIs_idx = list(range(0, len(ROIs_idx)))
+    fig, ax = plt.subplots()
+    data = G.T.dot(G) / M_normalizing_factor
+    vmax = max(data.max(), -data.min())
+    im = ax.matshow(data, vmax=vmax, vmin=-vmax, cmap='seismic')
+    ipdb.set_trace()
+
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
@@ -536,6 +534,77 @@ def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, dep
 
     return G, gain
 
+
+
+def reduce_lead_field(forward, src, n_eigenmodes, data=None):
+    import mne
+    if data is None:
+        logger.info('Using the raw forward solution')
+        data = np.swapaxes(forward['sol']['data'], 0, 1)  # (n_sources, n_channels)
+    data = data.copy()
+
+    if isinstance(src, mne.Forward):
+        src = src['src']
+
+    grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src, forward['src'])
+    group_eigenmodes = np.zeros((sum(n_groups) * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+    for i, this_grouped_vertidx in enumerate(grouped_vertidx):
+        this_group_eigenmodes, percentage_explained = truncatedsvd(data[this_grouped_vertidx],
+                                                             n_eigenmodes, return_pecentage_exaplained=True)
+        group_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = this_group_eigenmodes
+
+    src_flips = [None] * sum(n_groups)
+    return group_eigenmodes.T, grouped_vertidx, src_flips
+
+
+def prepare_label_extraction(labels, src):
+    vertno = [s['vertno'] for s in src]
+    label_vertidx = []
+    for label in labels:
+        if label.hemi == 'lh':
+            this_vertices = np.intersect1d(vertno[0], label.vertices)
+            vertidx = np.searchsorted(vertno[0], this_vertices)
+        elif label.hemi == 'rh':
+            this_vertices = np.intersect1d(vertno[1], label.vertices)
+            vertidx = len(vertno[0]) + np.searchsorted(vertno[1], this_vertices)
+        if len(vertidx) == 0:
+            vertidx = None
+        label_vertidx.append(vertidx)
+    return label_vertidx
+
+
+def assign_labels(labels, src_target, src_origin, thresh=0):
+    label_vertidx_origin = prepare_label_extraction(labels, src_origin)
+    group_vertidx, _, _ = _prepare_leadfield_reduction(src_target, src_origin)
+    label_vertidx = []
+    for this_label_vertidx_origin in label_vertidx_origin:
+        this_label_vertidx = []
+        for i, this_group_vertidx in enumerate(group_vertidx):
+            this_vertices = np.intersect1d(this_group_vertidx, this_label_vertidx_origin)
+            if len(this_vertices) > thresh:
+                this_label_vertidx.append(i)
+        this_label_vertidx = np.asanyarray(this_label_vertidx)
+        label_vertidx.append(this_label_vertidx)
+    return label_vertidx
+
+
+def _prepare_leadfield_reduction(src_target, src_origin):
+    vertno_origin = [s['vertno'] for s in src_origin]
+    vertno_target = [s['vertno'] for s in src_target]
+    pinfo_target = [s['pinfo'] for s in src_target]
+    n_verts = [s['nuse'] for s in src_origin]
+    n_groups = [s['nuse'] for s in src_target]
+    grouped_vertidx = []
+    for k, (this_vertno_target, this_pinfo_target, this_vertno_origin) in enumerate(zip(vertno_target, pinfo_target,
+                                                                            vertno_origin)):
+        offset = 0 if k == 0 else n_verts[k - 1]
+        for this_vert, this_pinfo in zip(this_vertno_target, this_pinfo_target):
+            this_vertices = np.intersect1d(this_vertno_origin, this_pinfo)
+            vertidx = offset + np.searchsorted(this_vertno_origin, this_vertices)
+            if len(vertidx) == 0:
+                vertidx = None
+            grouped_vertidx.append(vertidx)
+    return grouped_vertidx, n_groups, n_verts
 
 
 def reduce_lead_field(forward, src, n_eigenmodes, data=None):
