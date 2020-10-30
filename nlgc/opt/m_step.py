@@ -55,7 +55,8 @@ def calculate_ss(x_bar, s_bar, b, m, p):
     return s1, s2, s3, n
 
 
-def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, update_only_target=False):
+def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, update_only_target=False,
+        n_eigenmodes=1):
     if not update_only_target or zeroed_index is None:
         return _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=max_iter, tol=tol, zeroed_index=zeroed_index,)
     else:
@@ -68,13 +69,13 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
         target_ = np.asarray(zeroed_index[0]) - min(zeroed_index[0])
         source = np.asarray(zeroed_index[1])
         a_, changes = _solve_for_a(q_, s1_, s2, a_, p1, lambda2, max_iter=max_iter, tol=tol,
-                                   zeroed_index=(target_, source),)
+                                   zeroed_index=(target_, source), n_eigenmodes=n_eigenmodes)
         a[target] = a_
         return a, changes
 
 
 # @njit(cache=True)
-def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None,):
+def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, n_eigenmodes=1):
     """Gradient descent to learn a, state-transition matrix
 
     Parameters
@@ -186,6 +187,12 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
             # # *************************************************************
             if zeroed_index is not None:
                 a[zeroed_index] = 0.0
+
+            "************* make the cross history between eigenmodes = 0 from lag p1***********"
+            for l in range(0, m, n_eigenmodes):
+                a[l, l + 1::m] = 0
+                a[l + 1, l::m] = 0
+            "*********************************************************************"
 
             temp1 = a.dot(s2)
             # f_new = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, temp1 * qinv).sum()
@@ -302,7 +309,7 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     This equivalent to alpha*n - 2 additional observations that sum to beta*n.
     """
     diag_indices = np.diag_indices_from(q)
-    q_ = q[diag_indices]
+    q__ = q[diag_indices]
     temp = np.einsum('ij,ji->i', a, s2.T)
     # signa = np.sign(a)
     # signa *= np.expand_dims(q_, -1)
@@ -311,21 +318,22 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     temp3 = np.einsum('ij,ji->i', s2 - a.dot(s3), a.T)
     # q_ = s1[diag_indices] + temp2 - temp
     if s1.ndim == 2:
-        q_[:] = s1[diag_indices]
+        q_ = s1[diag_indices]
     else:
-        q_[:] = s1
+        q_ = s1
     # q_ += (temp2 - temp)
     q_ -= (temp + temp3)
     # q_ /= t
     q_ += beta
     q_ /= (1 + alpha)
     q[diag_indices] = np.abs(q_)
+    rel_change = ((q__ - q_) ** 2).sum() / (q__ ** 2).sum()
     # if q.min() < 0:
     #     import ipdb;
     #     ipdb.set_trace()
     # q = np.absolute(q)
     # q[q < 0] = 0
-    return q
+    return q, rel_change
 
 
 def compute_cross_ll(x_, a, q, m, p):
