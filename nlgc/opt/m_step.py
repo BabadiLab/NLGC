@@ -58,7 +58,8 @@ def calculate_ss(x_bar, s_bar, b, m, p):
 def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, update_only_target=False,
         n_eigenmodes=1):
     if not update_only_target or zeroed_index is None:
-        return _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=max_iter, tol=tol, zeroed_index=zeroed_index,)
+        return _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=max_iter, tol=tol, zeroed_index=zeroed_index,
+                            n_eigenmodes=n_eigenmodes)
     else:
         target = np.unique(zeroed_index[0])
         s1_ = s1[target]
