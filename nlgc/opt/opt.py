@@ -44,7 +44,8 @@ class NeuraLVAR:
     _zeroed_index = None
     restriction = None
 
-    def __init__(self, order, self_history=None, copy=True, standardize=False, normalize=False, use_lapack=True):
+    def __init__(self, order, self_history=None, n_eigenmodes=None, copy=True, standardize=False, normalize=False,
+            use_lapack=True):
         if standardize is not False and normalize is not False:
             raise ValueError(f"both standardize={standardize} and normalize={normalize} cannot be specified")
         elif standardize:
@@ -60,6 +61,7 @@ class NeuraLVAR:
         self._order = order
         self._self_histoty = order if self_history is None else self_history
         self._use_lapack = use_lapack
+        self._n_eigenmodes = 1 if n_eigenmodes is None else n_eigenmodes
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
              rel_tol=0.01, xs=None, alpha=0.5, beta=0.1, fixed_a=False, fixed_q=False):
@@ -135,7 +137,7 @@ class NeuraLVAR:
             # stopping cond
             if i > 0:
                 rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
-                if np.abs(rel_change) < rel_tol:
+                if np.abs(rel_change) < rel_tol and rel_q_change < rel_tol:
                     break
                 # print(f"{i}: rel change:{np.abs(rel_change)}")
 
@@ -147,9 +149,14 @@ class NeuraLVAR:
             for _ in range(max_cyclic_iter):
                 if not fixed_a:
                     a_upper, changes = solve_for_a(q_upper, s1, s2, a_upper, p1, lambda2=lambda2, max_iter=5000,
-                                                   tol=min(1e-4, rel_tol), zeroed_index=zeroed_index)
+                                                   tol=min(1e-4, rel_tol), zeroed_index=zeroed_index,
+                                                   update_only_target=False, n_eigenmodes=self._n_eigenmodes)
                 if not fixed_q:
-                    q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+                    q_upper, rel_q_change = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha,
+                                                   beta=beta)
+                if rel_q_change < rel_tol:
+                    break
+
                 if q_upper.min() < 0:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
                 # print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
@@ -461,7 +468,7 @@ class NeuraLVARCV(NeuraLVAR):
                 a_upper, lambda2 = solve_for_a_cv(q_upper, x_, s_, b, m, p, a_upper, lambda2=None, max_iter=5000,
                                                   tol=rel_tol, zeroed_index=zeroed_index,
                                                   max_n_lambda2=self.max_n_mus, cv=self.cv)
-                q_upper = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
+                q_upper, rel_change = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
             # print(f'max_a: {a_upper.max()}, max_q: {q_upper.max()}')
             # if a_upper.max() >= 1e10:
             #     import ipdb
@@ -533,12 +540,12 @@ class NeuraLVARCV_(NeuraLVAR):
     cv_lambdas = None
     mse_path = None
 
-    def __init__(self, order, self_history, max_n_mus, cv, n_jobs, copy=True, standardize=False, normalize=False,
-            use_lapack=True):
+    def __init__(self, order, self_history, n_eigenmodes, max_n_mus, cv, n_jobs, copy=True, standardize=False,
+            normalize=False, use_lapack=True):
         self.max_n_mus = max_n_mus
         self.cv = cv
         self.n_jobs = n_jobs
-        NeuraLVAR.__init__(self, order, self_history, copy, standardize, normalize, use_lapack)
+        NeuraLVAR.__init__(self, order, self_history, n_eigenmodes, copy, standardize, normalize, use_lapack)
 
     def _cvfit(self, split, info_y, info_f, info_r, info_cv, splits, lambda_range, max_iter=100, max_cyclic_iter=2,
                a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):

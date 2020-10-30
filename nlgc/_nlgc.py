@@ -190,9 +190,9 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
     # a_init = np.swapaxes(np.reshape(a_init, (m, p, m)), 0, 1)
 
     if len(lambda_range) > 1:
-        model_f = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)
+        model_f = NeuraLVARCV_(p, p1, n_eigenmodes, 10, cv, n_jobs, use_lapack=use_lapack)
     else:
-        model_f = NeuraLVAR(p, p1, use_lapack=use_lapack)
+        model_f = NeuraLVAR(p, p1, n_eigenmodes, use_lapack=use_lapack)
         lambda_range = lambda_range[0]
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                 **kwargs)
@@ -233,7 +233,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', alpha
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
         a_init[:] = a_f[:]
         a_init[:, target, source] = 0.0
-        model_r = NeuraLVAR(p, p1, use_lapack=use_lapack)
+        model_r = NeuraLVAR(p, p1, n_eigenmodes, use_lapack=use_lapack)
         model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=None, q_init=q_init.copy(), restriction=link,
                     alpha=alpha,
                     beta=beta, **kwargs)
