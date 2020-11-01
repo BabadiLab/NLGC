@@ -53,6 +53,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     temp2 = temp.dot(f.T) + r
     (l, low) = linalg.cho_factor(temp2, check_finite=False)
     k = linalg.cho_solve((l, low), temp, check_finite=False)
+    inv_innov_cov = linalg.cho_solve((l, low), np.eye(dy), check_finite=False)
+    logdet_inno_cov = np.log(np.diag(l)).sum()  # already multiplied by 1/2
     k = k.T  # Kalman Gain
     s = _s.copy()
     s -= k.dot(temp)
@@ -75,6 +77,7 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     temp2 = np.empty(dx, dtype=np.float64)
     if use_lapack:
         dot = linalg.get_blas_funcs(['gemv'], (a, x_[0]))[0]
+    ll = 0.0
     for i in range(t):
         if i == 0:
             _x[i] = 0
@@ -99,6 +102,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
             # x_[i] = k.dot(temp) + x_[i]
             dot(1.0, k, temp, beta=1.0, y=x_[i], overwrite_y=True)
 
+        ll += 0.5 * np.sum(inv_innov_cov.dot(temp) * temp) + logdet_inno_cov
+
     # i = t-1 case is already taken care of.
     for i in reversed(range(t - 1)):
         # temp = x_[i+1] - _x[i+1]
@@ -111,7 +116,7 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         else:
             # x_[i] = b.dot(temp1) + x_[i]
             dot(1.0, b, temp1, beta=1.0, y=x_[i], overwrite_y=True)
-    return x_, s, s_, b, s_hat
+    return x_, s, s_, b, s_hat, -ll
 
 
 def sskfcv(y, a, f, q, r, xs=None, use_lapack=True):

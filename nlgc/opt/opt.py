@@ -123,13 +123,15 @@ class NeuraLVAR:
             zeroed_index = None
 
         lls = []
+        ll_s = []
         Qvals = []
         source_fits = []
         for i in range(max_iter):
             a_[:m] = a_upper
             q_[non_zero_indices] = q_upper[non_zero_indices]
 
-            x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=xs, use_lapack=use_lapack)
+            ll_s.append(ll_)
             ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
             lls.append(ll)
             Qvals.append(compute_Q(y, x_, s_, b, a_upper, f, q_upper, r, m, p))
@@ -161,7 +163,7 @@ class NeuraLVAR:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
                 # print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
         a = self._unravel_a(a_upper)
-        return a, q_upper, (lls, Qvals, source_fits), f, r, zeroed_index, xs, x_
+        return a, q_upper, (lls, ll_s, Qvals, source_fits), f, r, zeroed_index, xs, x_
 
     def compute_ll(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -182,9 +184,31 @@ class NeuraLVAR:
             args = self._parameters
         a, f, q, r, *rest = args
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         ll = compute_ll(y, x_, s, s_, s_hat, a_upper, f, q_upper, r, m, n, p)
         return ll
+
+    def compute_ll_(self, y, args=None):
+        """Returns log(p(y|args=(a, f, q, r))).
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        args : tuple of ndarrays, default=None
+            Expect a tuple with the model parameters: (a, f, q, r).
+            if None, self._parameters is used.
+
+        Returns
+        -------
+        log_likelihood : float
+            Returns log(p(y|(a, f, q, r))).
+        """
+        if args is None:
+            args = self._parameters
+        a, f, q, r, *rest = args
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        return ll_
 
     def compute_Q(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -205,7 +229,7 @@ class NeuraLVAR:
             args = self._parameters
         a, f, q, r, *rest = args
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         ll = compute_Q(y, x_, s_, b, a_upper, f, q_upper, r, m, p)
         return ll
 
@@ -246,7 +270,7 @@ class NeuraLVAR:
         from .._utils import sample_path_bias
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index)
         return bias
 
@@ -254,7 +278,7 @@ class NeuraLVAR:
         from .._utils import mybias
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
-        x_, s, s_, b, s_hat = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+        x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
         if isinstance(source, int): source = tuple(source)
         bias = sum([mybias(i, q_upper, a_, x_, s_, b, m, p, self._zeroed_index) for i in source])
         return bias
@@ -601,9 +625,10 @@ class NeuraLVARCV_(NeuraLVAR):
                           max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init.copy(), rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             cv[0, split, i] = self.compute_ll(y_test, (a_, f, q_upper, r))
-            cv[1, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
-            cv[2, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
-            cv[3, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+            cv[1, split, i] = self.compute_ll_(y_test, (a_, f, q_upper, r))
+            cv[2, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
+            cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
+            cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                              rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
 
 
@@ -656,7 +681,7 @@ class NeuraLVARCV_(NeuraLVAR):
             cvsplits = [split for split in kf.split(y.T)]
         # import ipdb; ipdb.set_trace()
 
-        cv_mat = np.zeros((4, len(cvsplits), len(lambda_range)), dtype=y.dtype)
+        cv_mat = np.zeros((5, len(cvsplits), len(lambda_range)), dtype=y.dtype)
         # Use parallel processing
         # A, b, mu_range, cv_mat needs to shared across processes
         shared_y, info_y, shm_y = create_shared_mem(y)

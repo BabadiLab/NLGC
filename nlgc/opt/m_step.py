@@ -191,8 +191,12 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
 
             "************* make the cross history between eigenmodes = 0 from lag p1***********"
             for l in range(0, m, n_eigenmodes):
-                a[l, l + 1::m] = 0
-                a[l + 1, l::m] = 0
+                for u in range(n_eigenmodes):
+                    for v in range(n_eigenmodes):
+                        if v != u:
+                            a[l+v, l+u::m] = 0
+                # a[l, l + 1::m] = 0
+                # a[l + 1, l::m] = 0
             "*********************************************************************"
 
             temp1 = a.dot(s2)
