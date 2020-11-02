@@ -221,6 +221,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
     (a_f, q_f, bias_r, dev_raw, conv_flag, y, f)  # shared memory
     (r, alpha, beta, n_eigenmodes, kwargs) # can be passed directly
 
+    # ipdb.set_trace()
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
     bias_r_ = np.zeros((nx, nx))

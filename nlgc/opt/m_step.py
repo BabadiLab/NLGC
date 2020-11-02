@@ -181,6 +181,7 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
 
             # Backward (proximal) step
             a = shrink(temp, lambda2 * tau)
+            # a = project(a, 1.0)
 
             # #************* make the self history = 0 from lag p1***********
             for k in range(p1, p):
@@ -233,6 +234,17 @@ def shrink(x, t):
         return x + t
     else:
         return 0
+
+
+@vectorize([float32(float32, float32),
+            float64(float64, float64)], cache=True)
+def project(x, t):
+    if x > t:
+        return t
+    elif x < -t:
+        return -t
+    else:
+        return x
 
 
 def find_best_lambda_cv(cvsplits, lambda2_range, q, x_bar, s_bar, b, m, p, a, max_iter=5000, tol=1e-3,
