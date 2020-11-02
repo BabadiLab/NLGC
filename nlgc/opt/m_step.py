@@ -74,6 +74,7 @@ def solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index
         a[target] = a_
         return a, changes
 
+# def solve_for_a_ls(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, n_eigenmodes=1):
 
 # @njit(cache=True)
 def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_index=None, n_eigenmodes=1):
@@ -116,7 +117,7 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     q_inv_sqrt = np.sqrt(qinv)
 
     d = np.sqrt(np.diag(s2))
-    # d = np.ones_like(d)
+    d = np.ones_like(d)
     s2 = s2 / d[:, None]
     s2 = s2 / d[None, :]
     s1 = s1 / d[None, :]
@@ -179,9 +180,14 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
             temp = _a.copy()
             temp -= tau * grad
 
-            # Backward (proximal) step
-            a = shrink(temp, lambda2 * tau)
+            # ### Backward (proximal) steps
+            # print(np.abs(temp).sum(axis=1))
+            a = project_to_l1_ball(temp, axis=0)
+            # print(np.abs(a).sum(axis=1))
 
+            # ### Backward (proximal) steps
+            # a = shrink(temp, lambda2 * tau)
+            #
             # #************* make the self history = 0 from lag p1***********
             for k in range(p1, p):
                 a.flat[k * m::(p * m + 1)] = 0.0
@@ -233,6 +239,32 @@ def shrink(x, t):
         return x + t
     else:
         return 0
+
+
+# @njit([float32(float32), float64(float64)], cache=True)
+def find_lambda(y):
+    w = np.sort(np.abs(y))[::-1]
+    temp = (w.cumsum() - 1) / np.arange(1, w.shape[0]+1)
+    return temp[np.argwhere(w-temp > 0)[-1]]
+
+
+def project_to_l1_ball(a, axis):
+    a_ = np.empty_like(a)
+    if axis == 0:
+        for i in range(a.shape[0]):
+            if np.abs(a[i]).sum() < 1:
+                continue
+            l = find_lambda(a[i])
+            x = shrink(a[i], l)
+            a_[i] = x
+    elif axis == 1:
+        for i in range(a.shape[1]):
+            if np.abs(a[i]).sum() < 1:
+                continue
+            l = find_lambda(a[:,i])
+            x = shrink(a[:,i], l)
+            a_[:,i] = x
+    return a_
 
 
 def find_best_lambda_cv(cvsplits, lambda2_range, q, x_bar, s_bar, b, m, p, a, max_iter=5000, tol=1e-3,
