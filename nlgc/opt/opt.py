@@ -241,6 +241,13 @@ class NeuraLVAR:
                                       alpha, beta, fixed_a=True)
         return - np.log(np.diag(q_upper)).sum()
 
+    def compute_norm_one(self, a_):
+        p, _, _ = a_.shape
+        l = 0
+        for k in range(p):
+            l += np.linalg.norm(a_[k], ord=1)
+
+        return l
 
     def compute_crossvalidation_metric(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -630,7 +637,7 @@ class NeuraLVARCV_(NeuraLVAR):
             cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
             cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                              rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
-
+            cv[5, split, i] = lambda2*self.compute_norm_one(a_)
 
 
         for shm in (shm_y, shm_f, shm_r, shm_c):
@@ -681,7 +688,7 @@ class NeuraLVARCV_(NeuraLVAR):
             cvsplits = [split for split in kf.split(y.T)]
         # import ipdb; ipdb.set_trace()
 
-        cv_mat = np.zeros((5, len(cvsplits), len(lambda_range)), dtype=y.dtype)
+        cv_mat = np.zeros((6, len(cvsplits), len(lambda_range)), dtype=y.dtype)
         # Use parallel processing
         # A, b, mu_range, cv_mat needs to shared across processes
         shared_y, info_y, shm_y = create_shared_mem(y)
@@ -710,7 +717,7 @@ class NeuraLVARCV_(NeuraLVAR):
         # ipdb.set_trace()
 
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        index = self.mse_path[0].mean(axis=0).argmax()
+        index = self.mse_path[5].mean(axis=0).argmax()
 
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')
