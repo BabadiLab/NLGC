@@ -717,7 +717,7 @@ class NeuraLVARCV_(NeuraLVAR):
         # ipdb.set_trace()
 
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        index = self.mse_path[5].mean(axis=0).argmax()
+        index = self.mse_path[0].mean(axis=0).argmax()
 
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')
