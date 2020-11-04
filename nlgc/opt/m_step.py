@@ -2,7 +2,7 @@ import ipdb
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import linalg
-from numba import jit, njit, float32, float64, vectorize
+from numba import jit, njit, float32, float64, vectorize, uint
 
 np.seterr(all='warn')
 import warnings
@@ -152,7 +152,9 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         grad -= s1
         # grad *= qinv
         grad *= 2
-
+        # ipdb.set_trace()
+        # grad = _take_care(grad, n_eigenmodes)
+        # ipdb.set_trace()
         # # #************* make the self history = 0 from lag p1***********
         # for k in range(p1, p):
         #     grad.flat[k * m::(p * m + 1)] = 0.0
@@ -236,15 +238,20 @@ def shrink(x, t):
         return 0
 
 
-@vectorize([float32(float32, float32),
-            float64(float64, float64)], cache=True)
-def project(x, t):
-    if x > t:
-        return t
-    elif x < -t:
-        return -t
-    else:
-        return x
+# @njit([float32(float32, uint),float64(float64, uint)],cache=True)
+def _take_care(a, n_eigenmodes):
+    a_ = np.empty_like(a)
+    # p = np.floor_divide(a.shape[1], a.shape[0])
+    for i in range(a.shape[0]):
+        for j in range(np.floor_divide(a.shape[0], n_eigenmodes)):
+            if i not in range(j * n_eigenmodes, (j + 1) * n_eigenmodes):
+                for l in range(0, a.shape[1], a.shape[0]):
+                    a_[i, l+j*n_eigenmodes:l+(j+1)*n_eigenmodes] = a[i, l+j*n_eigenmodes:l+(j+1)*n_eigenmodes].sum()
+            else:
+                for l in range(0, a.shape[1], a.shape[0]):
+                    a_[i, l+j*n_eigenmodes:l+(j+1)*n_eigenmodes] = 0.0
+                    a_[i, l+i] = a[i, l+i]
+    return a_
 
 
 def find_best_lambda_cv(cvsplits, lambda2_range, q, x_bar, s_bar, b, m, p, a, max_iter=5000, tol=1e-3,
