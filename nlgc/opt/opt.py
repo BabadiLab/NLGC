@@ -732,7 +732,7 @@ class NeuraLVARCV_(NeuraLVAR):
         index = self.mse_path[0].mean(axis=0).argmax()
 
         if use_es:
-            best_lambda = lambda_range[self.es_path[:index].argmin()]
+            best_lambda = lambda_range[self.es_path[:index].nanargmin()]
             print(f'best_regularizing parameter: {best_lambda} using es')
         else:
             best_lambda = lambda_range[index]
