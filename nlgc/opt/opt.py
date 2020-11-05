@@ -776,5 +776,5 @@ def compute_es_criterion(pred):
         this_pred = pred[:, j, :]
         this_pred_mean = this_pred.mean(axis=0)
         fluctuation = this_pred - this_pred_mean[None, :]
-        es[j] = (fluctuation ** 2).sum() / (this_pred ** 2).sum()
+        es[j] = (fluctuation ** 2).sum() / (this_pred_mean ** 2).sum()
     return es
