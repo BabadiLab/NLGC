@@ -146,7 +146,8 @@ class NeuraLVAR:
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
             beta = 2 * beta / t
             alpha = 2 * (alpha + 1) / t if alpha else alpha
-
+            if np.isnan(s2).any():
+                ipdb.set_trace()
 
             for _ in range(max_cyclic_iter):
                 if not fixed_a:
@@ -162,6 +163,7 @@ class NeuraLVAR:
                 if q_upper.min() < 0:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
                 # print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
+
         a = self._unravel_a(a_upper)
         return a, q_upper, (lls, ll_s, Qvals, source_fits), f, r, zeroed_index, xs, x_
 
@@ -717,7 +719,7 @@ class NeuraLVARCV_(NeuraLVAR):
         # ipdb.set_trace()
 
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        index = self.mse_path[0].mean(axis=0).argmax()
+        index = self.mse_path[1].mean(axis=0).argmax()
 
         best_lambda = lambda_range[index]
         print(f'best_regularizing parameter: {best_lambda}')

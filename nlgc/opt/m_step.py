@@ -47,7 +47,8 @@ def calculate_ss(x_bar, s_bar, b, m, p):
 
     # s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
     s2 = x_bar[p - 1:-1].T.dot(x_bar[p - 1:-1]) / n + s_bar
-
+    if (np.diag(s2) <= 0).any():
+        ipdb.set_trace()
     # s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p + 1)
     s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[(p - 1) * m:, (p - 1) * m:]
     # s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[:m, :m]
@@ -116,6 +117,8 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     q_inv_sqrt = np.sqrt(qinv)
 
     d = np.sqrt(np.diag(s2))
+    if np.isnan(d).any():
+        ipdb.set_trace()
     # d = np.ones_like(d)
     s2 = s2 / d[:, None]
     s2 = s2 / d[None, :]
@@ -127,8 +130,11 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
 
     # max step size:
     # h_norm = qinv.max()
-    h_norm = np.linalg.eigvalsh(s2).max()
-    tau_max = 0.99 / h_norm
+    try:
+        h_norm = np.linalg.eigvalsh(s2).max()
+        tau_max = 0.99 / h_norm
+    except np.linalg.LinAlgError:
+        ipdb.set_trace()
 
     _a = np.empty_like(a)
     temp = np.empty_like(a)
@@ -175,6 +181,10 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
             tau = 0.5 * num / den
             tau = max(tau, tau_max)
         except Warning:
+            warnings.filterwarnings('ignore')
+            ipdb.set_trace()
+            # print(den, num)
+            # print(a)
             raise RuntimeError(f'Q possibly contains negative value {q.min()}')
         warnings.filterwarnings('ignore')
 
@@ -221,11 +231,15 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
 
         fs[i+1] = f_old
+        if np.isnan(a).sum() > 0:
+            ipdb.set_trace()
     # ipdb.set_trace()
     # print(f"grad max: {grad.max()}, grad min: {grad.min()}, lambda:{lambda2}")
     # print(f"starting f {fs[0]}, closing f {f_old}")
     a = a / d[None, :]
     a = a / q_inv_sqrt
+    if np.isnan(a).sum() > 0:
+        ipdb.set_trace()
     return a, changes
 
 
@@ -240,8 +254,7 @@ def shrink(x, t):
         return 0
 
 
-
-# @njit([float32[:,:](float32[:,:], uint), float64[:,:](float64[:,:], uint)], cache=True)
+@njit([float32[:,:](float32[:,:], uint), float64[:,:](float64[:,:], uint)], cache=True)
 def _take_care(a, n_eigenmodes):
     a_ = np.empty_like(a)
     for i in range(a.shape[0]):
