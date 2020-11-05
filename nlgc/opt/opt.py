@@ -10,7 +10,7 @@ from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
 
-from nlgc.opt.e_step import sskf, sskfcv, align_cast
+from nlgc.opt.e_step import sskf, sskfcv, align_cast, sskf_prediction
 from nlgc.opt.m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
                              compute_cross_ll, solve_for_a_cv, compute_Q)
 
@@ -265,6 +265,27 @@ class NeuraLVAR:
         # ll = compute_cross_ll(x_, a_upper, q_upper, m, p)
         # return ll
         return sskfcv(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
+
+    def get_prediction(self, y, args=None):
+        """Returns log(p(y|args=(a, f, q, r))).
+
+        Parameters
+        ----------
+        y : ndarray of shape (n_channels, n_samples)
+        args : tuple of ndarrays, default=None
+            Expect a tuple with the model parameters: (a, f, q, r).
+            if None, self._parameters is used.
+
+        Returns
+        -------
+        log_likelihood : float
+            Returns log(p(y|(a, f, q, r))).
+        """
+        if args is None:
+            args = self._parameters
+        a, f, q, r, *rest = args
+        y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
+        return sskf_prediction(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
 
     def compute_bias(self, y):
         from .._utils import sample_path_bias
@@ -563,6 +584,7 @@ class NeuraLVARCV_(NeuraLVAR):
     """
     cv_lambdas = None
     mse_path = None
+    es_path = None
 
     def __init__(self, order, self_history, n_eigenmodes, max_n_mus, cv, n_jobs, copy=True, standardize=False,
             normalize=False, use_lapack=True):
@@ -571,8 +593,8 @@ class NeuraLVARCV_(NeuraLVAR):
         self.n_jobs = n_jobs
         NeuraLVAR.__init__(self, order, self_history, n_eigenmodes, copy, standardize, normalize, use_lapack)
 
-    def _cvfit(self, split, info_y, info_f, info_r, info_cv, splits, lambda_range, max_iter=100, max_cyclic_iter=2,
-               a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):
+    def _cvfit(self, split, info_y, info_f, info_r, info_cv, info_pred, splits, lambda_range, max_iter=100,
+               max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):
         """Utility function to be used by self.fit()
 
         Parameters
@@ -602,6 +624,7 @@ class NeuraLVARCV_(NeuraLVAR):
             f, shm_f = link_share_memory(info_f)
             r, shm_r = link_share_memory(info_r)
             cv, shm_c = link_share_memory(info_cv)
+            pred, shm_pred = link_share_memory(info_pred)
         except BaseException as e:
             logger.error("Could not link to memory")
             raise e
@@ -627,6 +650,7 @@ class NeuraLVARCV_(NeuraLVAR):
             cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
             cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                              rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
+            pred[split, i][:] = self.get_prediction(y, (a_, f, q_upper, r)).T
 
 
         for shm in (shm_y, shm_f, shm_r, shm_c):
@@ -634,7 +658,7 @@ class NeuraLVARCV_(NeuraLVAR):
         return None
 
     def fit(self, y, f, r, lambda_range=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None,
-            rel_tol=0.0001, restriction=None, alpha=0.5, beta=0.1):
+            rel_tol=0.0001, restriction=None, alpha=0.5, beta=0.1, use_es=True):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         y : ndarray of shape (n_channels, n_samples)
@@ -678,13 +702,15 @@ class NeuraLVARCV_(NeuraLVAR):
         # import ipdb; ipdb.set_trace()
 
         cv_mat = np.zeros((5, len(cvsplits), len(lambda_range)), dtype=y.dtype)
+        pred_mat = np.zeros((len(cvsplits), len(lambda_range)) + y.shape, dtype=y.dtype)
         # Use parallel processing
         # A, b, mu_range, cv_mat needs to shared across processes
         shared_y, info_y, shm_y = create_shared_mem(y)
         shared_f, info_f, shm_f = create_shared_mem(f)
         shared_r, info_r, shm_r = create_shared_mem(r)
         shared_cv_mat, info_cv, shm_c = create_shared_mem(cv_mat)
-        initargs = (info_y, info_f, info_r, info_cv, cvsplits, lambda_range,
+        shared_pred_mat, info_pred, shm_p = create_shared_mem(pred_mat)
+        initargs = (info_y, info_f, info_r, info_cv, info_pred, cvsplits, lambda_range,
                     max_iter, max_cyclic_iter, a_init, q_init, rel_tol, alpha, beta)
 
         print('Starting cross-validation')
@@ -694,20 +720,23 @@ class NeuraLVARCV_(NeuraLVAR):
 
         self.cv_lambdas = lambda_range
         cv_mat[:] = np.reshape(shared_cv_mat, cv_mat.shape)
+        pred_mat[:] = np.reshape(shared_pred_mat, pred_mat.shape)
         self.mse_path = cv_mat
-        for shm in (shm_y, shm_f, shm_r):
+        self.es_path = compute_es_criterion(pred_mat)
+        for shm in (shm_y, shm_f, shm_r, shm_c, shm_p):
             shm.close()
             shm.unlink()
 
         # Find best mu
-        # normalized_cross_lls = self.mse_path - self.mse_path.max()
-        # ipdb.set_trace()
-
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
         index = self.mse_path[0].mean(axis=0).argmax()
 
-        best_lambda = lambda_range[index]
-        print(f'best_regularizing parameter: {best_lambda}')
+        if use_es:
+            best_lambda = lambda_range[self.es_path[:index].argmin()]
+            print(f'best_regularizing parameter: {best_lambda} using es')
+        else:
+            best_lambda = lambda_range[index]
+            print(f'best_regularizing parameter: {best_lambda}')
 
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=best_lambda, max_iter=max_iter,
                                                                max_cyclic_iter=max_cyclic_iter, a_init=a_init,
@@ -737,3 +766,15 @@ def link_share_memory(info):
 def initialize_q(y, f, r):
     q = np.eye(f.shape[1], dtype=np.float64)
     return q
+
+
+def compute_es_criterion(pred):
+    shape = pred.shape[:-2] + (-1,)
+    pred.shape = shape
+    es = np.empty(pred.shape[1], pred.dtype)
+    for j in range(pred.shape[1]):
+        this_pred = pred[:, j, :]
+        this_pred_mean = this_pred.mean(axis=0)
+        fluctuation = this_pred - this_pred_mean[None, :]
+        es[j] = (fluctuation ** 2).sum() / (this_pred ** 2).sum()
+    return es
