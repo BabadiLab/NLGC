@@ -732,7 +732,7 @@ class NeuraLVARCV_(NeuraLVAR):
         index = self.mse_path[0].mean(axis=0).argmax()
 
         if use_es:
-            best_lambda = lambda_range[self.es_path[:index].nanargmin()]
+            best_lambda = lambda_range[np.nanargmin(self.es_path[:index])]
             print(f'best_regularizing parameter: {best_lambda} using es')
         else:
             best_lambda = lambda_range[index]
@@ -769,12 +769,14 @@ def initialize_q(y, f, r):
 
 
 def compute_es_criterion(pred):
+    cv_split_repeats = np.arange(pred.shape[0]) + 1
+    # cv_split_repeats[:] = 1
     shape = pred.shape[:-2] + (-1,)
     pred.shape = shape
     es = np.empty(pred.shape[1], pred.dtype)
     for j in range(pred.shape[1]):
         this_pred = pred[:, j, :]
-        this_pred_mean = this_pred.mean(axis=0)
-        fluctuation = this_pred - this_pred_mean[None, :]
+        this_pred_mean = (this_pred * cv_split_repeats[:, None]).mean(axis=0)
+        fluctuation = (this_pred - this_pred_mean[None, :]) * np.sqrt(cv_split_repeats[:, None])
         es[j] = (fluctuation ** 2).sum() / (this_pred_mean ** 2).sum()
     return es
