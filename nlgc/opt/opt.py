@@ -305,7 +305,7 @@ class NeuraLVAR:
         return bias
 
     def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
-            restriction=None, alpha=0.5, beta=0.1):
+            restriction=None, alpha=0.5, beta=0.1, use_es=None):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         Parameters
@@ -427,7 +427,7 @@ class NeuraLVAR:
         return y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack
 
 
-class NeuraLVARCV(NeuraLVAR):
+class _NeuraLVARCV(NeuraLVAR):
     def __init__(self, order, max_n_mus=5, cv=5, n_jobs=-1, copy=True, standardize=False, normalize=False,
             use_lapack=True):
         self.max_n_mus = max_n_mus
@@ -563,7 +563,7 @@ class NeuraLVARCV(NeuraLVAR):
         return self
 
 
-class NeuraLVARCV_(NeuraLVAR):
+class NeuraLVARCV(NeuraLVAR):
     """Neural Latent Vector Auto-Regressive model (supports cross-validation)
 
     Provides a vector auto-regressive model for the unobserved (latent) source activities
@@ -694,8 +694,10 @@ class NeuraLVARCV_(NeuraLVAR):
 
         # do cvsplits
         if isinstance(self.cv, int):
-            kf = TimeSeriesSplit(n_splits=2*self.cv)
-            cvsplits = [split for split in kf.split(y.T)][-self.cv:]
+            # kf = TimeSeriesSplit(n_splits=2*self.cv)
+            # cvsplits = [split for split in kf.split(y.T)][-self.cv:]
+            kf = TimeSeriesSplit(n_splits=self.cv)
+            cvsplits = [split for split in kf.split(y.T)]
         else:
             kf = self.cv
             cvsplits = [split for split in kf.split(y.T)]
@@ -770,7 +772,7 @@ def initialize_q(y, f, r):
 
 def compute_es_criterion(pred):
     cv_split_repeats = np.arange(pred.shape[0]) + 1
-    # cv_split_repeats[:] = 1
+    cv_split_repeats[:] = 1
     shape = pred.shape[:-2] + (-1,)
     pred.shape = shape
     es = np.empty(pred.shape[1], pred.dtype)

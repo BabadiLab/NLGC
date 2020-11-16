@@ -1,1 +1,1 @@
-from .opt import NeuraLVAR, NeuraLVARCV
+from .opt import NeuraLVAR, _NeuraLVARCV
