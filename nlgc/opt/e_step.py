@@ -165,9 +165,10 @@ def sskfcv(y, a, f, q, r, xs=None, use_lapack=True):
         assert x_.flags['C_CONTIGUOUS']
 
     try:
-        _s = linalg.solve_discrete_are(a.T, f.T, q, r)
-    except np.linalg.LinAlgError:
-        import ipdb;
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=True)
+    except ValueError:
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=False)
+        import ipdb
         ipdb.set_trace()
     temp = f.dot(_s)
     temp2 = temp.dot(f.T) + r

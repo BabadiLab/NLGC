@@ -197,15 +197,14 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
     model_f.fit(y, f, r * np.eye(n), lambda_range, a_init=a_init, q_init=q_init.copy(), alpha=alpha, beta=beta,
                     **kwargs)
     # ipdb.set_trace()
-    with open('model_f.pkl', 'wb') as fp:
-        pickle.dump(model_f, fp)
+    # with open('model_f.pkl', 'wb') as fp:
+    #     pickle.dump(model_f, fp)
     # with open('model_f.pkl', 'rb') as fp: model_f = pickle.load(fp)
 
     bias_f = model_f.compute_bias(y)
 
     warnings.filterwarnings('ignore')
     model_f.compute_crossvalidation_metric(y)
-    # ipdb.set_trace()
 
     dev_raw = np.zeros((nx, nx))
     bias_r = np.zeros((nx, nx))
@@ -227,6 +226,22 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
     bias_r_ = np.zeros((nx, nx))
     bias_f_ = np.zeros((nx, nx))
     dev_raw_ = np.zeros((nx, nx))
+
+    x_ = np.sum(model_f._parameters[4][:, :m] ** 2, axis=0)
+    total_power = np.zeros(m // n_eigenmodes)
+    for i in range(0, m // n_eigenmodes):
+        total_power[i] = np.sum(x_[i*n_eigenmodes: (i+1)*n_eigenmodes])
+
+    sorted_idx = np.flip(np.argsort(total_power.T))
+
+    for idx in range(0, m // n_eigenmodes):
+        if np.sum(total_power[sorted_idx[:idx]]) > 0.95*np.sum(total_power):
+            print(idx)
+            break
+
+    ROIs = sorted_idx[:idx+1]
+    print(ROIs)
+
     for i, j in tqdm(itertools.product(ROIs, repeat=2)):
         if i == j:
             continue
@@ -237,11 +252,12 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, ROIs=[], alpha=0, beta=0,
             continue
 
         link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
-        a_init[:] = a_f[:]
+        a_init = a_f.copy()
         a_init[:, target, source] = 0.0
 
         model_r = NeuraLVAR(p, p1, n_eigenmodes, use_lapack=use_lapack)
-        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=None, q_init=q_init.copy(), restriction=link,
+        # model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=None, q_init=q_init.copy(), restriction=link,
+        model_r.fit(y, f, r*np.eye(n), lambda_f, a_init=a_init, q_init=q_f.copy(), restriction=link,
                     alpha=alpha,
                     beta=beta, **kwargs)
         # model_r = NeuraLVARCV_(p, p1, 10, cv, n_jobs, use_lapack=use_lapack)

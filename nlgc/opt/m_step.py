@@ -160,7 +160,7 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         grad *= 2
         # ipdb.set_trace()
 
-        grad = _take_care(grad, n_eigenmodes)
+        # grad = _take_care(grad, n_eigenmodes)
         # ipdb.set_trace()
 
         # # #************* make the self history = 0 from lag p1***********
