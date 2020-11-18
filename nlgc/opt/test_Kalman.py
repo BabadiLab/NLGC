@@ -3,10 +3,11 @@ from scipy import linalg
 from matplotlib import pyplot as plt
 from nlgc.opt.e_step import sskf
 from nlgc.opt.m_step import solve_for_a, solve_for_q, calculate_ss, compute_ll
-from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV_
+from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV
 
 
 def generate_processes(seed=0):
+    np.random.seed(seed)
     # n, m, p, k = 155, 2*68, 6, 100
     n, m, p, k = 3, 3, 2, 4
     n_eigenmodes = 2
@@ -91,9 +92,9 @@ def test_neuralvar(use_lapack=True, lambda2=0.1, rel_tol=0.0001):
     return model
 
 
-def test_neuralvarcv(use_lapack=True, lambda2=0.05, rel_tol=0.0001):
-    x, y, f, r, p, a, q = generate_processes(0)
-    model = NeuraLVARCV_(p, p, 1, 10, 3, 10, use_lapack=use_lapack)
+def test_neuralvarcv(use_lapack=True, lambda2=0.05, rel_tol=0.0001, seed=0):
+    x, y, f, r, p, a, q = generate_processes(seed)
+    model = NeuraLVARCV(p, p, 1, 10, 3, 10, use_lapack=use_lapack)
                     # order, max_n_mus, cv, n_jobs,
     model.fit(y.T, f, r, lambda_range=[1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001], max_iter=100,
               max_cyclic_iter=2, a_init=None,
@@ -107,15 +108,15 @@ def test_neuralvarcv(use_lapack=True, lambda2=0.05, rel_tol=0.0001):
     return model
 
 
-def test_nlgc(use_lapack=True, max_iter=1000, lambda2=0.05, rel_tol=1e-4, seed=0):
+def test_nlgc(use_lapack=True, max_iter=1000, lambda2=None, rel_tol=1e-6, use_es=False, seed=0):
     x, y, f, r, p, a, q = generate_processes(seed)
     epsilon = 0.02
     alpha = 2 + epsilon
     beta = 1 * (1 + epsilon)
     from nlgc._nlgc import _gc_extraction
     out = _gc_extraction(y.T, f, r, p, p, n_eigenmodes=1, ROIs=[0, 1, 2], alpha=alpha, beta=beta,
-                  lambda_range=[0], max_iter=max_iter, max_cyclic_iter=3,
-                  tol=rel_tol, sparsity_factor=0.0, cv=5, use_lapack=True)
+                  lambda_range=lambda2, max_iter=max_iter, max_cyclic_iter=3,
+                  tol=rel_tol, sparsity_factor=0.0, cv=5, use_lapack=use_lapack, use_es=use_es)
     return out
 
 

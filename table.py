@@ -57,7 +57,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
 
     m, p, t = len(patch_idx), 2, 3000
 
-    q = 0.1*np.eye(m)
+    q = m_active/(20-m_active)*np.eye(m)
 
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
@@ -239,7 +239,7 @@ class DiagFls:
 
 if __name__ == "__main__":
 
-    np.random.seed(0)
+    np.random.seed(1)
 
     ds = e.load_epochs(ndvar=False, reject=False)
     labels = e._load_labels()
@@ -257,7 +257,8 @@ if __name__ == "__main__":
 
     total_trial = 20
     n_eigenmodes = 2
-    lambda_range = np.asanyarray([2, 1.5, 1.25, 1.1, 1, 0.9, 0.75, 5e-1, 2e-1, 1e-1, 1e-2])
+    # lambda_range = np.asanyarray([2, 1.5, 1.25, 1.1, 1, 0.9, 0.75, 5e-1, 2e-1, 1e-1, 1e-2])
+    lambda_range = np.asanyarray([1.5, 1.25, 1.1, 1, 0.9, 0.75, 5e-1, 2e-1, 1e-1])
     max_iter = 500
     max_cyclic_iter = 3
     tol = 1e-5
@@ -275,42 +276,16 @@ if __name__ == "__main__":
     # 'parstriangularis-rh':        0, 5
 
     base_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
-    base_patch_ = np.array([39, 0, 30, 12, 28, 5, 61, 41, 58, 80, 83, 75])
-    corr_thr = 0.6
-    # ################################################################################################################
-    # flag = 0
-    # n_patch = 12
-    # initial = base_patch[np.random.permutation(len(base_patch))[:1]]
-    # patch_idx = [initial[0]]
-    # ex_g, g, x, y, r_cov, p, JG = data_generation(base_patch, 1, 1, evoked, forward, cov, labels_as_list,
-    #                                               n_eigenmodes)
-    #
-    # while len(patch_idx) < n_patch:
-    #     temp_patch = patch_idx.copy()
-    #     for i in patch_idx:
-    #         if len(patch_idx) >= n_patch:
-    #             break
-    #         for j in base_patch:
-    #             if i == j:
-    #                 continue
-    #             temp_patch.append(j)
-    #             ex_g, g, x, y, r_cov, p, JG = data_generation(patch_idx, 1, 1, evoked, forward, cov, labels_as_list,
-    #                                                           n_eigenmodes)
-    #             corr = np.abs(np.corrcoef(ex_g.T))
-    #             np.fill_diagonal(corr, 0)
-    #             print(len(patch_idx))
-    #             if np.sum(corr > 0.6) == 0:
-    #                 patch_idx.append(j)
-    #                 break
-    #             else:
-    #                 temp_patch.pop(-1)
-    # ipdb.set_trace()
-    # ################################################################################################################
+    aud_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
+    # base_patch_ = np.array([39, 0, 30, 12, 28, 5, 61, 41, 58, 80, 83, 75])
+    corr_thr = 1
+    var_thr = 0.9
 
     # m_active_vec = [2, 3, 4, 5]
-    m_active_vec = [3]
+    k = 2
+    m_active_vec = [k]
     # m_inactive_vec = [0, 2, 4, 6]
-    m_inactive_vec = [2]
+    m_inactive_vec = [20-k]
     alpha = -1
 
     # [58 61 30 77 79 32 83 39 28 12 65  5] = 47, seed(3)
@@ -333,7 +308,12 @@ if __name__ == "__main__":
                     cnt = 0
                     corr_penalty = 0
                     while True:
-                        patch_idx = base_patch_[np.random.permutation(range(len(base_patch_)))][:m_active+m_inactive]
+                        # patch_idx = base_patch[np.random.permutation(range(len(base_patch)))][:m_active+m_inactive]
+                        act_patch = aud_patch[np.random.permutation(range(len(aud_patch)))][:m_active]
+                        inact_patch = list(range(m_inactive_vec[0]))
+                        # for w in act_patch:
+                        #     inact_patch.remove(w)
+                        patch_idx = np.hstack((act_patch, np.array(inact_patch)))
                         ex_g, g, x, y, r_cov, p, JG = data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes)
                         corr = np.abs(np.corrcoef(ex_g.T))
                         np.fill_diagonal(corr, 0)
@@ -342,8 +322,8 @@ if __name__ == "__main__":
                             corr_penalty += 1
                         if np.sum(corr > corr_thr) <= corr_penalty:
                             break
-
-                    print('patch_idx: ', patch_idx)
+                    print('total patch:', len(patch_idx))
+                    print('active patch: ', act_patch)
                     print('trial: ', k)
                     t, n = y.shape
                     f = ex_g
@@ -354,15 +334,16 @@ if __name__ == "__main__":
                     tt = t // n_segments
                     for n_ in range(0, n_segments):
                         print('segment: ', n_)
-                        dev_raw, bias_r, bias_f, model_f, conv_flag, dev_raw_, bias_f_, bias_r_ = \
+                        dev_raw, bias_r, bias_f, model_f, conv_flag = \
                                 _gc_extraction(y[n_ * tt: (n_ + 1) * tt, :].T, f, r=r_cov * np.eye(n), p=p, p1=p,
                                                n_eigenmodes=n_eigenmodes, ROIs=ROIs, lambda_range=lambda_range,
                                                max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-                                               tol=tol, sparsity_factor=sparsity_factor)
+                                               tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
 
                         dev_raw[dev_raw < -10] = 0
                         d_b += dev_raw
                         d += debiased_dev(dev_raw, bias_f, bias_r)
+                        # print(debiased_dev(dev_raw, bias_f, bias_r))
 
                     d_b /= n_segments
                     d /= n_segments
@@ -370,9 +351,9 @@ if __name__ == "__main__":
 
                     msd_det[k], fls_det[k] = missed_false_detection(JG, J)
                     print('missed: ', msd_det[k] / np.sum(JG))
-                    print('false : ', fls_det[k] / m / (m - 1))
+                    print('false : ', fls_det[k] / (m * (m - 1) - np.sum(JG)))
                     np.set_printoptions(precision=2)
-                    # print('avg_dev: \n', d_b)
+                    # print('avg_dev: \n', d[:m_active, :m_active])
                     patch_all.append(patch_idx)
                     J_all[k] = J
                     k += 1
