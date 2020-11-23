@@ -127,7 +127,6 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     h_norm = np.linalg.eigvalsh(s2).max()
     tau_max = 0.99 / h_norm
 
-
     _a = np.empty_like(a)
     temp = np.empty_like(a)
     m = a.shape[0]
@@ -149,14 +148,8 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         grad -= s1
         grad *= 2
 
+        # # old implementation of aggregate eigenmodes
         # grad = _take_care(grad, n_eigenmodes)
-
-        # # #************* make the self history = 0 from lag p1***********
-        # for k in range(p1, p):
-        #     grad.flat[k * m::(p * m + 1)] = 0.0
-        # # # *************************************************************
-        # if zeroed_index is not None:
-        #     grad[zeroed_index] = 0.0
 
         # Find opt step-size
         warnings.filterwarnings('error')
@@ -167,7 +160,6 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
             tau = 0.5 * num / den
             tau = max(tau, tau_max)
         except Warning:
-            warnings.filterwarnings('ignore')
             raise RuntimeError(f'Q possibly contains negative value {q.min()}')
         warnings.filterwarnings('ignore')
 
@@ -178,7 +170,6 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
 
             # Backward (proximal) step
             a = shrink(temp, lambda2 * tau)
-            # a = project(a, 1.0)
 
             # #************* make the self history = 0 from lag p1***********
             for k in range(p1, p):
@@ -210,13 +201,10 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         changes[i+1] = 1 if den == 0 else np.sqrt(num / den)
 
         fs[i+1] = f_old
-        if np.isnan(a).sum() > 0:
-            ipdb.set_trace()
 
     a = a / d[None, :]
     a = a / q_inv_sqrt
-    if np.isnan(a).sum() > 0:
-        ipdb.set_trace()
+
     return a, changes
 
 
@@ -269,7 +257,7 @@ def _find_cross_fit_cv(i, cvsplits, lambda2s, q, x_bar, s_bar, b, m, p, a, max_i
 def solve_for_a_cv(q_upper, x_, s_, b, m, p, a, lambda2=None, max_iter=5000, tol=1e-3,
         zeroed_index=None, max_n_lambda2=5, cv=5):
     from sklearn.model_selection import TimeSeriesSplit
-    import ipdb;
+
     if isinstance(cv, int):
         kf = TimeSeriesSplit(n_splits=2 * cv)
         cvsplits = [split for split in kf.split(x_)][-cv:]

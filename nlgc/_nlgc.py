@@ -209,8 +209,11 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1.0, ROIs=[], alpha
         for n in range(n_eigenmodes):
             total_power += x_[n::n_eigenmodes]
 
-        sorted_idx = np.flip(np.argsort(total_power.T))
-        sorted_pow_ratio = np.cumsum(total_power[sorted_idx])/np.sum(total_power)
+        sorted_idx = np.flip(np.argsort(total_power))
+
+        sorted_pow_ratio = np.cumsum(total_power[sorted_idx])
+        sorted_pow_ratio /= sorted_pow_ratio[-1]
+
         idx = ((sorted_pow_ratio>var_thr)!=0).argmax()
 
         ROIs = sorted_idx[:idx+1]
@@ -397,97 +400,6 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
                     conv_flag, label_names, label_vertidx)
 
     return nlgc_obj
-
-
-def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
-        ROIs_names='just_full_model',
-        n_segments=1, loose=0.0, depth=0.8, pca=True, rank=None, mode='svd_flip', lambda_range=None, max_iter=50,
-        max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=False):
-    _check_reference(evoked)
-
-    depth_dict={'exp':depth, 'limit_depth_chs':'whiten', 'combine_xyz':'fro', 'limit':None}
-
-    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
-        forward, evoked.info, noise_cov, pca, depth_dict, loose, rank)
-
-    if not is_fixed_orient(forward):
-        raise ValueError(f"Cannot work with free orientation forward: {forward}")
-
-    # get the data
-    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
-    M = evoked.data[sel]
-
-    # whiten the data
-    logger.info('Whitening data matrix.')
-    M = np.dot(whitener, M)
-    ## copy till here
-    # extract label eigenmodes
-    # G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes, allow_empty=True)
-    if isinstance(labels, Forward):
-        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
-        label_names = []
-        for label in labels['src']:
-            label_names.extend(label['vertno'])
-    elif isinstance(labels, SourceSpaces):
-        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
-        label_names = []
-        for label in labels: label_names.extend(label['vertno'])
-    elif isinstance(labels, list):
-        if isinstance(labels[0], Label):
-            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
-                                                                   allow_empty=True)
-            label_names = [label.name for label in labels]
-        else:
-            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
-                             'mne.Forward object or list of mne.Labels.')
-
-    # test if there are empty columns
-    sel = np.any(G, axis=0)
-    G = G[:, sel].copy()
-    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
-    src_flip = [i for select, i in zip(sel, src_flip) if select]
-    discarded_labels =[]
-    j = 0
-    for i, sel_ in enumerate(sel[::n_eigenmodes]):
-        if not sel_:
-            discarded_labels.append(labels.pop(i-j))
-            label_vertidx.pop(i-j)
-            j += 1
-    assert j == len(discarded_labels)
-    if j > 0:
-        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
-                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
-
-    ROIs_idx = list()
-
-    if ROIs_names == None:
-        ROIs_idx = list(range(0, len(labels)))
-    elif ROIs_names == 'just_full_model':
-        ROIs_idx = []
-    else:
-        for ROIs_name in ROIs_names:
-            ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
-
-    # Normalization
-    M_normalizing_factor = linalg.norm(np.dot(M, M.T)/M.shape[1], ord='fro')
-    G_normalizing_factor = linalg.norm(G, ord=2)
-    # G /= G_normalizing_factor
-    G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
-    G /= G_normalizing_factor[None, :]
-    G *= np.sqrt(M_normalizing_factor)
-    r = 1
-    fig, ax = plt.subplots()
-    data = G.T.dot(G) / M_normalizing_factor
-    vmax = max(data.max(), -data.min())
-    im = ax.matshow(data, vmax=vmax, vmin=-vmax, cmap='seismic')
-
-    out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
-                            alpha=alpha, beta=beta,
-                            lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
-                            sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
-                            label_vertidx=label_vertidx, use_lapack=use_lapack, use_es=use_es)
-
-    return out_obj
 
 
 def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,

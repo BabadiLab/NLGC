@@ -719,10 +719,8 @@ class NeuraLVARCV(NeuraLVAR):
         cv_mat[:] = np.reshape(shared_cv_mat, cv_mat.shape)
         pred_mat[:] = np.reshape(shared_pred_mat, pred_mat.shape)
         self.mse_path = cv_mat
-
         self.es_path = compute_es_criterion(pred_mat)
         for shm in (shm_y, shm_f, shm_r, shm_c, shm_p):
-
             shm.close()
             shm.unlink()
 

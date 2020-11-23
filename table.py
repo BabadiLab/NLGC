@@ -245,8 +245,8 @@ if __name__ == "__main__":
     corr_thr = 0.65
     var_thr = 0.95
 
-    m_active_vec = [4]
-    m_inactive_vec = [14]
+    m_active_vec = [2]
+    m_inactive_vec = [2]
     alpha = -1
 
     tabel_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
