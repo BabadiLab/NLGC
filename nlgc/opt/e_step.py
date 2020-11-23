@@ -47,6 +47,7 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     try:
         _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=False)
     except np.linalg.LinAlgError:
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=True)
         import ipdb;
         ipdb.set_trace()
     temp = f.dot(_s)

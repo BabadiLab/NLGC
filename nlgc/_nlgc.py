@@ -1,7 +1,6 @@
 # author: proloy Das <proloy@umd.edu>
 # author: Behrad Soleimani <behrad@umd.edu>
 
-import ipdb
 import itertools
 from nlgc.opt.opt import NeuraLVAR, _NeuraLVARCV, NeuraLVARCV, link_share_memory, create_shared_mem
 from matplotlib import pyplot as plt
@@ -25,9 +24,7 @@ from multiprocessing import cpu_count, current_process
 import warnings
 import logging
 
-
 plt.ion()
-
 
 def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
     if n_components > min(*a.shape):
@@ -140,7 +137,7 @@ def expand_roi_indices_as_tup(reg_idx, emod):
 
 _default_lambda_range =  np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,])
 
-def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0, beta=0,
+def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1.0, ROIs=[], alpha=0, beta=0,
                   lambda_range=None, max_iter=50, max_cyclic_iter=5,
                   tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=False):
     logger = logging.getLogger(__name__)
@@ -159,7 +156,6 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0
     # learn the full model
     n_jobs = cv if isinstance(cv, int) else cv.get_n_splits()
     n_jobs = min(n_jobs, cpu_count())
-    # n_jobs = 3
 
     if lambda_range is None:
         lambda_range = _default_lambda_range
@@ -197,28 +193,25 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0
     a_f = model_f._parameters[0]
     q_f = model_f._parameters[2]
     lambda_f = model_f.lambda_
-    a_init = np.empty_like(a_f)
-    mul = np.exp(n_eigenmodes * p / y.shape[1])
+    # a_init = np.empty_like(a_f)
+    # mul = np.exp(n_eigenmodes * p / y.shape[1])
 
-
-    # ipdb.set_trace()
     sparsity = np.linalg.norm(model_f._parameters[0], axis=0, ord=1) * np.diag(model_f._parameters[2])[None, :]
 
-    bias_r_ = np.zeros((nx, nx))
-    bias_f_ = np.zeros((nx, nx))
-    dev_raw_ = np.zeros((nx, nx))
+    # # Old log ratio implementation
+    # bias_r_ = np.zeros((nx, nx))
+    # bias_f_ = np.zeros((nx, nx))
+    # dev_raw_ = np.zeros((nx, nx))
 
     if var_thr < 1:
         x_ = np.sum(model_f._parameters[4][:, :m] ** 2, axis=0)
         total_power = np.zeros(m // n_eigenmodes)
-        for i in range(0, m // n_eigenmodes):
-            total_power[i] = np.sum(x_[i*n_eigenmodes: (i+1)*n_eigenmodes])
+        for n in range(n_eigenmodes):
+            total_power += x_[n::n_eigenmodes]
 
         sorted_idx = np.flip(np.argsort(total_power.T))
-
-        for idx in range(0, m // n_eigenmodes):
-            if np.sum(total_power[sorted_idx[:idx]]) > var_thr*np.sum(total_power):
-                break
+        sorted_pow_ratio = np.cumsum(total_power[sorted_idx])/np.sum(total_power)
+        idx = ((sorted_pow_ratio>var_thr)!=0).argmax()
 
         ROIs = sorted_idx[:idx+1]
         print('Selected ROIs: ', ROIs)
@@ -228,12 +221,12 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0
         if i == j:
             continue
 
-        # target = expand_roi_indices_as_tup(j, n_eigenmodes)
-        # source = expand_roi_indices_as_tup(i, n_eigenmodes)
-        # if sparsity[target, source].sum() <= sparsity_factor * sparsity[target, target].sum():
-        #     continue
+        target = expand_roi_indices_as_tup(j, n_eigenmodes)
+        source = expand_roi_indices_as_tup(i, n_eigenmodes)
+        if sparsity[target, source].sum() <= sparsity_factor * sparsity[target, target].sum():
+            continue
 
-        links_to_check.append((i, j))
+        links_to_check.append((j, i))
 
     logger.info(f"Checking {len(links_to_check)} links...")
 
@@ -245,13 +238,12 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0
     shared_args = (info_y, info_f, info_bias_r, info_ll_r, info_conv_flag)  # shared memory
     args = (r, lambda_f, a_f, q_f, p, p1, n_eigenmodes, use_lapack) # can be passed directly
 
-    with Timer(name='test'):
-        # Parallel
-        n_jobs = min(cpu_count(), len(links_to_check))
-        Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
-                                                                                   **kwargs) for link in links_to_check)
-        # # serial
-        # [_learn_reduced_model_parallel(link, *(shared_args + args), ** kwargs) for link in links_to_check]
+    # Parallel
+    n_jobs = min(cpu_count(), len(links_to_check))
+    Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
+                                                                               **kwargs) for link in links_to_check)
+    # # serial
+    # [_learn_reduced_model_parallel(link, *(shared_args + args), ** kwargs) for link in links_to_check]
 
     ll_r = np.reshape(shared_ll_r, dev_raw.shape).copy()
     bias_r = np.reshape(shared_bias_r, dev_raw.shape).copy()
@@ -269,10 +261,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1, ROIs=[], alpha=0
     #                          target))
     # # if dev_raw_[j, i] < 0:
     # #     warnings.filterwarnings('ignore')
-    # #     ipdb.set_trace()
     # bias_r_[j, i] = model_r.compute_bias_idx(y, target)
     # bias_f_[j, i] = model_f.compute_bias_idx(y, target)
-
     return dev_raw, bias_r, bias_f, model_f, conv_flag
 
 
@@ -403,7 +393,6 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
         models.append(model_f)
         conv_flag[n] = conv_flag_
 
-
     nlgc_obj = NLGC(name, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
                     conv_flag, label_names, label_vertidx)
 
@@ -470,7 +459,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
     ROIs_idx = list()
-    ipdb.set_trace()
 
     if ROIs_names == None:
         ROIs_idx = list(range(0, len(labels)))
@@ -492,8 +480,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     data = G.T.dot(G) / M_normalizing_factor
     vmax = max(data.max(), -data.min())
     im = ax.matshow(data, vmax=vmax, vmin=-vmax, cmap='seismic')
-    ipdb.set_trace()
-
 
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta,
@@ -502,6 +488,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
                             label_vertidx=label_vertidx, use_lapack=use_lapack, use_es=use_es)
 
     return out_obj
+
 
 def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,
               mode='svd_flip'):
@@ -555,9 +542,7 @@ def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, dep
         logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
-
     return G, gain
-
 
 
 def reduce_lead_field(forward, src, n_eigenmodes, data=None):

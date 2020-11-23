@@ -48,7 +48,7 @@ def calculate_ss(x_bar, s_bar, b, m, p):
     # s2 = x_bar[:-1].T.dot(x_bar[:-1]) / (x_bar.shape[0] - p + 1)
     s2 = x_bar[p - 1:-1].T.dot(x_bar[p - 1:-1]) / n + s_bar
     if (np.diag(s2) <= 0).any():
-        ipdb.set_trace()
+        raise ValueError('diag(s2) values are not non-negative!')
     # s3 = x[2:].T.dot(x[2:]) / (x_bar.shape[0] - p + 1)
     s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[(p - 1) * m:, (p - 1) * m:]
     # s3 = x_[p:].T.dot(x_[p:]) / n + s_bar[:m, :m]
@@ -112,14 +112,10 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     eps = np.finfo(s1.dtype).eps
     q = np.diag(q)
     qinv = 1 / q
-    # qinv = np.ones_like(q)
     qinv = np.expand_dims(qinv, -1)
     q_inv_sqrt = np.sqrt(qinv)
 
     d = np.sqrt(np.diag(s2))
-    if np.isnan(d).any():
-        ipdb.set_trace()
-    # d = np.ones_like(d)
     s2 = s2 / d[:, None]
     s2 = s2 / d[None, :]
     s1 = s1 / d[None, :]
@@ -128,13 +124,9 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     a = a * q_inv_sqrt
     s1 = s1 * q_inv_sqrt
 
-    # max step size:
-    # h_norm = qinv.max()
-    try:
-        h_norm = np.linalg.eigvalsh(s2).max()
-        tau_max = 0.99 / h_norm
-    except np.linalg.LinAlgError:
-        ipdb.set_trace()
+    h_norm = np.linalg.eigvalsh(s2).max()
+    tau_max = 0.99 / h_norm
+
 
     _a = np.empty_like(a)
     temp = np.empty_like(a)
@@ -148,7 +140,6 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
     f_old = -2 * np.einsum('ij,ji->i', a.T, s1).sum() + np.einsum('ij,ji->i', a.T, a.dot(s2)).sum()
     fs[0] = f_old
     temp1 = a.dot(s2)
-    # grad = np.zeros_like(a)
     for i in range(max_iter):
         if changes[i] < tol or num == 0:
             break
@@ -156,12 +147,9 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         # Calculate gradient
         grad = temp1
         grad -= s1
-        # grad *= qinv
         grad *= 2
-        # ipdb.set_trace()
 
         # grad = _take_care(grad, n_eigenmodes)
-        # ipdb.set_trace()
 
         # # #************* make the self history = 0 from lag p1***********
         # for k in range(p1, p):
@@ -173,18 +161,13 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         # Find opt step-size
         warnings.filterwarnings('error')
         try:
-            # tau = 0.5 * (grad * grad).sum() / (np.diag(grad.dot(s2.dot(grad.T))) * qinv.ravel()).sum()
             temp2 = grad.dot(s2.T)
-            # den = ((temp2 * grad).sum(axis=1) * qinv.ravel()).sum()
             den = ((temp2 * grad).sum(axis=1)).sum()
             num = (grad * grad).sum()
             tau = 0.5 * num / den
             tau = max(tau, tau_max)
         except Warning:
             warnings.filterwarnings('ignore')
-            ipdb.set_trace()
-            # print(den, num)
-            # print(a)
             raise RuntimeError(f'Q possibly contains negative value {q.min()}')
         warnings.filterwarnings('ignore')
 
@@ -210,16 +193,12 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
                     for v in range(n_eigenmodes):
                         if v != u:
                             a[l+v, l+u::m] = 0
-                # a[l, l + 1::m] = 0
-                # a[l + 1, l::m] = 0
             "*********************************************************************"
 
             temp1 = a.dot(s2)
-            # f_new = -2 * np.einsum('ij,ji->i', a.T, s1 * qinv).sum() + np.einsum('ij,ji->i', a.T, temp1 * qinv).sum()
             f_new = -2 * np.einsum('ij,ji->i', a.T, s1).sum() + np.einsum('ij,ji->i', a.T, temp1).sum()
             diff = (a - _a)
             f_new_upper = f_old + (grad * diff).sum() + (diff ** 2).sum() / (2 * tau)
-            # print(f_new, f_new_upper)
             if f_new < f_new_upper or tau / tau_max < 1e-10:
                 break
             else:
@@ -233,9 +212,7 @@ def _solve_for_a(q, s1, s2, a, p1, lambda2, max_iter=5000, tol=1e-3, zeroed_inde
         fs[i+1] = f_old
         if np.isnan(a).sum() > 0:
             ipdb.set_trace()
-    # ipdb.set_trace()
-    # print(f"grad max: {grad.max()}, grad min: {grad.min()}, lambda:{lambda2}")
-    # print(f"starting f {fs[0]}, closing f {f_old}")
+
     a = a / d[None, :]
     a = a / q_inv_sqrt
     if np.isnan(a).sum() > 0:
@@ -304,7 +281,6 @@ def solve_for_a_cv(q_upper, x_, s_, b, m, p, a, lambda2=None, max_iter=5000, tol
     lambda2_range = lambda2_max / 5 ** (np.arange(max_n_lambda2) + 1)
     cv_lambda2_range = None
     cv_mse_path = None
-    # ipdb.set_trace()
     while True:
         mse_path = find_best_lambda_cv(cvsplits, lambda2_range, q_upper, x_, s_, b, m, p, a, max_iter,
                                                      tol, zeroed_index)
@@ -367,11 +343,7 @@ def solve_for_q(q, s1, s2, s3, a, lambda2, alpha=0, beta=0,):
     q_ /= (1 + alpha)
     q[diag_indices] = np.abs(q_)
     rel_change = ((q__ - q_) ** 2).sum() / (q__ ** 2).sum()
-    # if q.min() < 0:
-    #     import ipdb;
-    #     ipdb.set_trace()
-    # q = np.absolute(q)
-    # q[q < 0] = 0
+
     return q, rel_change
 
 

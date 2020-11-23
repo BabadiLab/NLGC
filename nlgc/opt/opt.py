@@ -21,7 +21,6 @@ filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
 
 
-
 class NeuraLVAR:
     """Neural Latent Vector Auto-Regressive model
 
@@ -141,13 +140,10 @@ class NeuraLVAR:
                 rel_change = (lls[i - 1] - lls[i]) / lls[i - 1]
                 if np.abs(rel_change) < rel_tol and rel_q_change < rel_tol:
                     break
-                # print(f"{i}: rel change:{np.abs(rel_change)}")
 
             s1, s2, s3, t = calculate_ss(x_, s_, b, m, p)
             beta = 2 * beta / t
             alpha = 2 * (alpha + 1) / t if alpha else alpha
-            if np.isnan(s2).any():
-                ipdb.set_trace()
 
             for _ in range(max_cyclic_iter):
                 if not fixed_a:
@@ -162,7 +158,6 @@ class NeuraLVAR:
 
                 if q_upper.min() < 0:
                     warnings.warn(f'Q possibly contains negative value {q_upper.min()}', RuntimeWarning)
-                # print(f"{i}:a_max:{a_upper.max()}, q_max:{q_upper.max()}")
 
         a = self._unravel_a(a_upper)
         return a, q_upper, (lls, ll_s, Qvals, source_fits), f, r, zeroed_index, xs, x_
@@ -244,12 +239,7 @@ class NeuraLVAR:
         return - np.log(np.diag(q_upper)).sum()
 
     def compute_norm_one(self, a_):
-        p, _, _ = a_.shape
-        l = 0
-        for k in range(p):
-            l += np.linalg.norm(a_[k], ord=1)
-
-        return l
+        return np.sum(np.absolute(a_))
 
     def compute_crossvalidation_metric(self, y, args=None):
         """Returns log(p(y|args=(a, f, q, r))).
@@ -346,10 +336,6 @@ class NeuraLVAR:
         a, q_upper, lls, f, r, zeroed_index, _, x_ = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
                                                                max_cyclic_iter=max_cyclic_iter, a_init=a_init,
                                                                q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
-
-        # import ipdb
-        # ipdb.set_trace()
-        
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
@@ -526,10 +512,7 @@ class _NeuraLVARCV(NeuraLVAR):
                                                   tol=rel_tol, zeroed_index=zeroed_index,
                                                   max_n_lambda2=self.max_n_mus, cv=self.cv)
                 q_upper, rel_change = solve_for_q(q_upper, s3, s1, s2, a_upper, lambda2=lambda2, alpha=alpha, beta=beta)
-            # print(f'max_a: {a_upper.max()}, max_q: {q_upper.max()}')
-            # if a_upper.max() >= 1e10:
-            #     import ipdb
-            #     ipdb.set_trace()
+
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_, lambda2
 
@@ -566,7 +549,6 @@ class _NeuraLVARCV(NeuraLVAR):
         a, q_upper, lls, f, r, zeroed_index, _, x_, lambda2 = self._fit(y, f, r, lambda2=lambda2, max_iter=max_iter,
                                                                max_cyclic_iter=max_cyclic_iter, a_init=a_init,
                                                                q_init=q_init, rel_tol=rel_tol, alpha=alpha, beta=beta)
-
         self._parameters = (a, f, q_upper, r, x_)
         self._zeroed_index = zeroed_index
         self._lls = lls
@@ -656,18 +638,15 @@ class NeuraLVARCV(NeuraLVAR):
                 self._fit(y_train, f, r, lambda2=lambda2, max_iter=max_iter,
                           max_cyclic_iter=max_cyclic_iter,
                           a_init=a_init, q_init=q_init.copy(), rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
-            cv[0, split, i] = self.compute_ll(y_test, (a_, f, q_upper, r))
-            cv[1, split, i] = self.compute_ll_(y_test, (a_, f, q_upper, r))
-            cv[2, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
-            cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
-            cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-                                             rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
-
+            # # different criteria for cross-validation
+            # cv[0, split, i] = self.compute_ll(y_test, (a_, f, q_upper, r))
+            # cv[1, split, i] = self.compute_ll_(y_test, (a_, f, q_upper, r))
+            # cv[2, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
+            # cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
+            # cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+            #                                  rel_tol=rel_tol, alpha=alpha, beta=beta, args=(a_, f, q_upper, r))
             cv[5, split, i] = lambda2*self.compute_norm_one(a_)
-
             pred[split, i][:] = self.get_prediction(y, (a_, f, q_upper, r)).T
-
-
 
         for shm in (shm_y, shm_f, shm_r, shm_c):
             shm.close()
@@ -717,8 +696,6 @@ class NeuraLVARCV(NeuraLVAR):
         else:
             kf = self.cv
             cvsplits = [split for split in kf.split(y.T)]
-        # import ipdb; ipdb.set_trace()
-
 
         cv_mat = np.zeros((6, len(cvsplits), len(lambda_range)), dtype=y.dtype)
         pred_mat = np.zeros((len(cvsplits), len(lambda_range)) + y.shape, dtype=y.dtype)

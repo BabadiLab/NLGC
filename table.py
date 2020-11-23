@@ -23,25 +23,23 @@ import matplotlib.pyplot as plt
 
 
 def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes):
+
     if alpha == -1:
         n2 = 10
-        W = np.hstack((np.random.uniform(0.75,1.25,(1,2)),np.random.uniform(0,np.sqrt(2)/2,(1,8))))
+        W = np.hstack((np.random.uniform(0.75, 1.25, (1, n_eigenmodes)),
+                       np.random.uniform(0, np.sqrt(2)/2, (1, n2-n_eigenmodes))))
+        W *= np.sign(np.random.uniform(-1, 1, (1, n2)))
     else:
         n2 = 3
         W = np.array([1, 1, alpha])
 
     G, _ = nlgc_map_(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
-    # G1, _ = nlgc_map_(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
-    # G1, _ = nlgc_map_(evoked, forward, cov, labels_as_list, n_eigenmodes=10)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
     ex_g = np.zeros((n, n_eigenmodes * len(patch_idx)))
 
     for idx, this_patch in enumerate(patch_idx):
-        # patch_vert_idx = grouped_vertidx[this_patch]
-        # g_ = gain[:, patch_vert_idx]
-
         ex_g[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = G[:, this_patch * n2: this_patch * n2 + n_eigenmodes]
         g_ = G[:, this_patch * n2: (this_patch + 1) * n2]
 
@@ -49,15 +47,13 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         g0 /= np.sum(W)
         g[:, idx] = g0 / np.linalg.norm(g0, ord=2)
 
-
     ex_g /= np.sqrt(np.sum(ex_g ** 2, axis=0))
 
     # Simulate AR process
     ###############################################################################
-
     m, p, t = len(patch_idx), 2, 3000
 
-    q = m_active/(20-m_active)*np.eye(m)
+    q = 0.1*m_active/(m-m_active)*np.eye(m)
 
     a = np.zeros(p * m * m, dtype=np.float64)
     a.shape = (p, m, m)
@@ -66,97 +62,21 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         q[i, i] = 1
         a[1, i, i] = 0.9
 
-    if m_active == 2:
+    if m_active >= 2:
         a[0, 0, 1] = -0.5
 
-    if m_active == 3:
-        a[0, 0, 1] = -0.5
+    if m_active >= 3:
         a[0, 0, 2] = -0.5
 
-    if m_active == 4:
-        a[0, 0, 1] = -0.5
-        a[0, 0, 2] = -0.5
+    if m_active >= 4:
         a[0, 3, 2] = -0.5
 
-    if m_active == 5:
-        a[0, 0, 1] = -0.5
-        a[0, 0, 2] = -0.5
-        a[0, 3, 2] = -0.5
+    if m_active >= 5:
         a[0, 3, 4] = -0.5
-
-    # a[0, 2, 2] = 0.8
-    # a[0, 3, 3] = 0.8
-    # a[0, 4, 4] = -0.8
-    # a[0, 5, 5] = -0.8
-    # a[0, 6, 6] = -0.8
-
-    # a[1, 0, 4] = -0.4
-    # a[0, 1, 5] = 0.4
-    # a[1, 3, 1] = 0.4
-
-    #################################################################
-
-    # a[0, 0, 1] = -0.1
-    # a[1, 0, 7] = -0.3
-    #
-    # a[0, 1, 0] = -0.2
-    # a[0, 1, 3] = 0.3
-    # a[0, 1, 4] = -0.2
-    #
-    # a[1, 2, 7] = -0.35
-    #
-    # a[1, 4, 6] = 0.3
-    #
-    # a[1, 5, 4] = -0.3
-    # a[2, 5, 6] = 0.3
-    #
-    # a[2, 8, 9] = 0.2
-    # a[2, 9, 8] = -0.2
-    #
-    # a[3, 10, 12] = -0.25
-    # a[3, 11, 10] = 0.25
-    # a[3, 12, 11] = -0.25
-    #
-    # a[1, 13, 14] = -0.1
-    # a[1, 14, 13] = 0.15
-    #
-    # a[0, 0, 0] = 0.8
-    # a[1, 1, 1] = 0.9
-    # a[1, 5, 5] = 0.45
-    # a[1, 6, 6] = -0.45
-    # a[2, 8, 8] = -0.6
-    # a[2, 9, 9] = 0.5
-    # a[2, 13, 13] = 0.65
-    # a[2, 14, 14] = 0.65
-
-    #################################################################
-
-    # a[0, 0, 0] = 0.8
-    # a[0, 1, 1] = 0.8
-    # a[0, 2, 2] = 0.8
-    # a[0, 3, 3] = 0.8
-    # a[0, 4, 4] = -0.8
-    # a[0, 5, 5] = -0.8
-    # a[0, 6, 6] = -0.8
-    #
-    # a[0, 0, 4] = -0.4
-    # a[0, 1, 5] = 0.4
-    # a[0, 3, 1] = 0.4
-
-    # a[1, 0, 1] = -0.4
-    # a[1, 1, 4] = 0.4
-    # a[1, 6, 4] = 0.5
-
-    # a[2, 2, 3] = -0.6
-    # a[2, 2, 6] = -0.5
-
-    # a[3, 5, 6] = -0.4
-    # a[3, 0, 5] = -0.5
 
     temp_JG = np.sum(np.abs(a), axis=0)
     JG = temp_JG != 0
     np.fill_diagonal(JG, 0)
-
 
     u = np.random.standard_normal(m * t)
     u.shape = (t, m)
@@ -174,10 +94,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
 
     ## Data generation
     ###############################################################################
-
     y = x.dot(g.T)
-    # reduced_ex_g = ex_g[:, ::n_eigenmodes]
-    # y = x.dot(reduced_ex_g.T)
     px = y.dot(y.T).trace()
 
     noise = np.random.standard_normal(y.shape)
@@ -199,6 +116,7 @@ def debiased_dev(dev_raw, bias_f, bias_r):
     np.fill_diagonal(d, 0)
     d[d < 0] = 0
     return d
+
 
 def missed_false_detection(J, J_est):
 
@@ -237,9 +155,59 @@ class DiagFls:
             print(patch[src], '->', patch[tar])
         print('############################################################')
 
+
+def return_neighbors(src_target, idx):
+    hm = 0
+    if idx >= 42:
+        idx -= 42
+        hm = 1
+    vertno = src_target[hm]['vertno'][idx]
+
+    neighbors_vertno = np.argsort(src_target[hm]['dist'][vertno].toarray())[0][:-42:-1][::-1][:6]
+    neighbors_ = []
+    for n_v in neighbors_vertno:
+        for i in range(42):
+            if n_v in src_target[hm]['pinfo'][i]:
+                neighbors_.append(i)
+
+    if hm == 1:
+        neighbors = [n + 42 for n in neighbors_]
+        neighbors.append(42+idx)
+    else:
+        neighbors = neighbors_
+        neighbors.append(idx)
+
+    return neighbors
+
+
+def relaxed_rates(src_target, JG, J, patch_idx):
+    nn_true_links = []
+    for tar, src in zip(np.nonzero(JG)[0], np.nonzero(JG)[1]):
+        nn_true_links.append((return_neighbors(src_target, patch_idx[src]), return_neighbors(src_target, patch_idx[tar])))
+
+    hit_rate = 0
+    false_rate = 0
+    disc_links = []
+    for tar, src in zip(np.nonzero(J)[0], np.nonzero(J)[1]):
+            disc_links.append((patch_idx[src], patch_idx[tar]))
+
+    for link in disc_links:
+        flag = 0
+        for i in range(len(nn_true_links)):
+            if link[0] in nn_true_links[i][0] and link[1] in nn_true_links[i][1]:
+                hit_rate += 1
+                flag = 1
+                break
+        if flag == 0:
+            false_rate += 1
+
+    m, _ = JG.shape
+    return np.min([1, hit_rate/np.sum(JG)]), false_rate/(m*(m-1) - np.sum(JG))
+
+
 if __name__ == "__main__":
 
-    np.random.seed(1)
+    np.random.seed(0)
 
     ds = e.load_epochs(ndvar=False, reject=False)
     labels = e._load_labels()
@@ -250,15 +218,13 @@ if __name__ == "__main__":
     epochs = ds['epochs'][ds['noise'] == '-6dB']
     evoked = epochs[0].average()
 
-
     src_target = e.load_src(src='ico-1')
     grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src_target, src_origin)
     labels_as_list = src_target
 
-    total_trial = 20
+    total_trial = 10
     n_eigenmodes = 2
-    # lambda_range = np.asanyarray([2, 1.5, 1.25, 1.1, 1, 0.9, 0.75, 5e-1, 2e-1, 1e-1, 1e-2])
-    lambda_range = np.asanyarray([1.5, 1.25, 1.1, 1, 0.9, 0.75, 5e-1, 2e-1, 1e-1])
+    lambda_range = np.asanyarray([1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
     max_iter = 500
     max_cyclic_iter = 3
     tol = 1e-5
@@ -275,55 +241,51 @@ if __name__ == "__main__":
     # 'parstriangularis-lh':        75, 76, 79, 83
     # 'parstriangularis-rh':        0, 5
 
-    base_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
     aud_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
-    # base_patch_ = np.array([39, 0, 30, 12, 28, 5, 61, 41, 58, 80, 83, 75])
-    corr_thr = 1
-    var_thr = 0.9
+    corr_thr = 0.65
+    var_thr = 0.95
 
-    # m_active_vec = [2, 3, 4, 5]
-    k = 2
-    m_active_vec = [k]
-    # m_inactive_vec = [0, 2, 4, 6]
-    m_inactive_vec = [20-k]
+    m_active_vec = [4]
+    m_inactive_vec = [14]
     alpha = -1
-
-    # [58 61 30 77 79 32 83 39 28 12 65  5] = 47, seed(3)
-    # [39  0 30 12 28  5 61 41 58 80 83 75] = 46, seed(0)
 
     tabel_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
     tabel_f = np.zeros((len(m_active_vec), len(m_inactive_vec)))
-    # total_trial += 1
+    tabel_rlx_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
+    tabel_rlx_f = np.zeros((len(m_active_vec), len(m_inactive_vec)))
     for m2, m_inactive in enumerate(m_inactive_vec):
         for m1, m_active in enumerate(m_active_vec):
             m = m_active + m_inactive
             msd_det = np.zeros((total_trial, 1))
             fls_det = np.zeros((total_trial, 1))
+            relaxed_hit_rate = np.zeros((total_trial, 1))
+            relaxed_fls_rate = np.zeros((total_trial, 1))
             J_all = np.zeros((total_trial, m, m))
             patch_all = []
-            # for k in range(0, total_trial):
             k = 0
             while k < total_trial:
                 try:
                     cnt = 0
                     corr_penalty = 0
                     while True:
-                        # patch_idx = base_patch[np.random.permutation(range(len(base_patch)))][:m_active+m_inactive]
                         act_patch = aud_patch[np.random.permutation(range(len(aud_patch)))][:m_active]
-                        inact_patch = list(range(m_inactive_vec[0]))
-                        # for w in act_patch:
-                        #     inact_patch.remove(w)
+                        inact_patch_ = list(range(84))
+                        for w in act_patch:
+                            inact_patch_.remove(w)
+                        inact_patch_ = np.array(inact_patch_)
+                        inact_patch = inact_patch_[np.random.permutation(range(len(inact_patch_)))][:m_inactive]
                         patch_idx = np.hstack((act_patch, np.array(inact_patch)))
                         ex_g, g, x, y, r_cov, p, JG = data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes)
-                        corr = np.abs(np.corrcoef(ex_g.T))
+                        corr = np.abs(np.corrcoef(ex_g[:, :m_active*n_eigenmodes].T))
                         np.fill_diagonal(corr, 0)
                         cnt += 1
-                        if cnt > 5:
+                        if cnt > 50:
                             corr_penalty += 1
                         if np.sum(corr > corr_thr) <= corr_penalty:
                             break
                     print('total patch:', len(patch_idx))
                     print('active patch: ', act_patch)
+                    print('inactive patch: ', inact_patch)
                     print('trial: ', k)
                     t, n = y.shape
                     f = ex_g
@@ -343,17 +305,21 @@ if __name__ == "__main__":
                         dev_raw[dev_raw < -10] = 0
                         d_b += dev_raw
                         d += debiased_dev(dev_raw, bias_f, bias_r)
-                        # print(debiased_dev(dev_raw, bias_f, bias_r))
 
                     d_b /= n_segments
                     d /= n_segments
                     J = fdr_control(d, p*n_eigenmodes, 0.001)
 
                     msd_det[k], fls_det[k] = missed_false_detection(JG, J)
+                    relaxed_hit_rate[k], relaxed_fls_rate[k] = relaxed_rates(src_target, JG, J, patch_idx)
+                    print('################################################################')
                     print('missed: ', msd_det[k] / np.sum(JG))
                     print('false : ', fls_det[k] / (m * (m - 1) - np.sum(JG)))
+                    print('*****************************************************************')
+                    print('relaxed missed: ', 1-relaxed_hit_rate[k])
+                    print('relaxed false : ', relaxed_fls_rate[k])
+                    print('################################################################')
                     np.set_printoptions(precision=2)
-                    # print('avg_dev: \n', d[:m_active, :m_active])
                     patch_all.append(patch_idx)
                     J_all[k] = J
                     k += 1
@@ -363,8 +329,8 @@ if __name__ == "__main__":
                 except np.linalg.LinAlgError:
                     print('LinAlgError! Run it again!')
                     continue
-                except RuntimeError:
-                    print('RuntimeError! Run it again!')
+                except RuntimeError as err:
+                    print('handling RuntimeError!', err)
                     continue
 
             print('Summary: ')
@@ -374,31 +340,24 @@ if __name__ == "__main__":
             print('Alpha:', alpha)
             print('hit rate: ', 1 - msd_det.mean()/np.sum(JG), ' (', (1 - msd_det/np.sum(JG)).std(), ')')
             print('false alarm : ', fls_det.mean()/(m*(m-1)-np.sum(JG)), ' (', fls_det.std()/(m*(m-1)-np.sum(JG)), ')')
+            print('*****************************************************************')
+            print('relaxed hit rate: ', relaxed_hit_rate.mean(), ' (', relaxed_hit_rate.std(), ')')
+            print('relaxed false alarm : ', relaxed_fls_rate.mean(), ' (', relaxed_fls_rate.std(), ')')
             print('------------------------------------------------------------------')
             tabel_h[m1, m2] = 1 - msd_det.mean()/np.sum(JG)
             tabel_f[m1, m2] = fls_det.mean()/(m*(m-1) - np.sum(JG))
-            obj = DiagFls(m_active, m_inactive, JG, J_all, patch_all)
+            tabel_rlx_h[m1, m2] = relaxed_hit_rate.mean()
+            tabel_rlx_f[m1, m2] = relaxed_fls_rate.mean()
 
+            # # save all trials to check the false discoveries
+            # obj = DiagFls(m_active, m_inactive, JG, J_all, patch_all)
             # file_name = f"{m_active}-{m_inactive}-{alpha}.pkl"
             # with open(file_name, 'wb') as fp:
             #     pickle.dump(obj, fp)
 
+    # # open the false discoveries
     # file_name = f"{m_active}-{m_inactive}-{alpha}.pkl"
     # with open(file_name, 'rb') as fp: temp = pickle.load(fp)
 
-
-    # a_f = model_f._parameters[0]
-    # q_f = model_f._parameters[2]
-    #
-    # a_f_ = np.zeros((m, m))
-    # for i in range(0, n_eigenmodes):
-    #     a_f_ += np.squeeze(np.abs(a_f[0, i::n_eigenmodes, i::n_eigenmodes]))
-    #
-    # # print(dev_raw)
-
-    # al = model_f.mse_path.mean(axis=1)
-    # fig, ax = plt.subplots(6)
-    # for a, ll_ in zip(ax, al): a.plot(model_f.cv_lambdas, ll_)
-    # for a in ax: a.set_xscale('log')
 
 
