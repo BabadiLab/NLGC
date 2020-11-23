@@ -260,8 +260,8 @@ if __name__ == "__main__":
             fls_det = np.zeros((total_trial, 1))
             relaxed_hit_rate = np.zeros((total_trial, 1))
             relaxed_fls_rate = np.zeros((total_trial, 1))
-            J_all = np.zeros((total_trial, m, m))
-            patch_all = []
+            # J_all = np.zeros((total_trial, m, m))
+            # patch_all = []
             k = 0
             while k < total_trial:
                 try:
@@ -320,8 +320,8 @@ if __name__ == "__main__":
                     print('relaxed false : ', relaxed_fls_rate[k])
                     print('################################################################')
                     np.set_printoptions(precision=2)
-                    patch_all.append(patch_idx)
-                    J_all[k] = J
+                    # patch_all.append(patch_idx)
+                    # J_all[k] = J
                     k += 1
                 except ValueError:
                     print('ValueError! Run it again!')
