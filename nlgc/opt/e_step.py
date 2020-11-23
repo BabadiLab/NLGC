@@ -70,8 +70,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
     s_ = linalg.solve_discrete_lyapunov(b, s_hat)
     if (np.diag(s_) <=0).any():
-        import ipdb
-        ipdb.set_trace()
+        raise ValueError('diag(s_) values are not non-negative!')
+
     # s_ = s + b.dot(s - _s).dot(b.T)     # Approximation from Elvira's paper
 
     f, a, k, b = align_cast((f, a, k, b), use_lapack)
