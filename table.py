@@ -1,13 +1,9 @@
-import mne
-import os
-import glob
+# author: Behrad Soleimani <behrad@umd.edu>
+
 from nlgc._nlgc import *
 import ipdb
-from codetiming import Timer
 from nlgc._nlgc import _prepare_leadfield_reduction
 from nlgc._nlgc import _nlgc_map_opt
-from nlgc._nlgc import _gc_extraction
-from nlgc._stat import fdr_control
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -16,12 +12,6 @@ from csslaging import er_cov as cov
 
 import matplotlib
 import matplotlib.pyplot as plt
-
-# kwargs = {'raw': 'tsss-1-8-causal-ica-apply', 'src': 'ico-4', 'parc': 'aparc', 'epoch': 'all', 'session': 'Cocktail'}
-# e.set(**kwargs)
-# kwargs = {'src': 'ico-4'}
-# e.set(**kwargs)
-
 
 def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes):
 
@@ -108,17 +98,6 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
     return ex_g, g, x, y, r_cov, p, JG
 
 
-def debiased_dev(dev_raw, bias_f, bias_r):
-    d = dev_raw.copy()
-    bias_mat = bias_r - bias_f
-
-    d[d < 0] = 0
-    d[d > 0] += bias_mat[d > 0]
-    np.fill_diagonal(d, 0)
-    d[d < 0] = 0
-    return d
-
-
 def missed_false_detection(J, J_est):
 
     n, _ = J.shape
@@ -134,27 +113,6 @@ def missed_false_detection(J, J_est):
     false_det = np.sum((Jr-Jr_est) == -1)
 
     return missed_det, false_det
-
-
-class DiagFls:
-    def __init__(self, m_active, m_inactive, JG, J, patch_idx):
-        self.m_active = m_active
-        self.m_inactive = m_inactive
-        self.JG = JG*1
-        self.J = J
-        self.patch_idx = patch_idx
-
-    def print_links(self, trial):
-        patch = self.patch_idx[trial]
-        print('############################################################')
-        print('true links of trial ', trial, ' :')
-        for tar, src in zip(np.nonzero(self.JG)[0], np.nonzero(self.JG)[1]):
-            print(patch[src], '->', patch[tar])
-        print('------------------------------------------------------------')
-        print('discovered links of trial ', trial, ' :')
-        for tar, src in zip(np.nonzero(self.J[trial])[0], np.nonzero(self.J[trial])[1]):
-            print(patch[src], '->', patch[tar])
-        print('############################################################')
 
 
 def return_neighbors(src_target, idx):
