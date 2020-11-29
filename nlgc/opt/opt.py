@@ -62,8 +62,8 @@ class NeuraLVAR:
         self._use_lapack = use_lapack
         self._n_eigenmodes = 1 if n_eigenmodes is None else n_eigenmodes
 
-    def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
-             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1, fixed_a=False, fixed_q=False):
+    def _fit(self, y, f, r, lambda2=None, max_iter=500, max_cyclic_iter=3, a_init=None, q_init=None,
+             rel_tol=0.01, xs=None, alpha=0.0, beta=0.0, fixed_a=False, fixed_q=False):
         """Internal function that fits the model from given data
 
         Parameters
@@ -303,8 +303,8 @@ class NeuraLVAR:
         bias = sum([mybias(i, q_upper, a_, x_, s_, b, m, p, self._zeroed_index) for i in source])
         return bias
 
-    def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
-            restriction=None, alpha=0.5, beta=0.1, use_es=None):
+    def fit(self, y, f, r, lambda2=None, max_iter=500, max_cyclic_iter=3, a_init=None, q_init=None, rel_tol=0.0001,
+            restriction=None, alpha=0.0, beta=0.0, use_es=None):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         Parameters
@@ -434,7 +434,7 @@ class _NeuraLVARCV(NeuraLVAR):
         NeuraLVAR.__init__(self, order, copy, standardize, normalize, use_lapack)
 
     def _fit(self, y, f, r, lambda2=None, max_iter=20, max_cyclic_iter=2, a_init=None, q_init=None,
-             rel_tol=0.01, xs=None, alpha=0.5, beta=0.1):
+             rel_tol=0.01, xs=None, alpha=0.0, beta=0.0):
         """Internal function that fits the model from given data
 
         Parameters
@@ -516,8 +516,8 @@ class _NeuraLVARCV(NeuraLVAR):
         a = self._unravel_a(a_upper)
         return a, q_upper, lls, f, r, zeroed_index, xs, x_, lambda2
 
-    def fit(self, y, f, r, lambda2=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001,
-            restriction=None, alpha=0.5, beta=0.1):
+    def fit(self, y, f, r, lambda2=None, max_iter=500, max_cyclic_iter=3, a_init=None, q_init=None, rel_tol=1e-5,
+            restriction=None, alpha=0.0, beta=0.0):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         Parameters
@@ -587,8 +587,8 @@ class NeuraLVARCV(NeuraLVAR):
         self.n_jobs = n_jobs
         NeuraLVAR.__init__(self, order, self_history, n_eigenmodes, copy, standardize, normalize, use_lapack)
 
-    def _cvfit(self, split, info_y, info_f, info_r, info_cv, info_pred, splits, lambda_range, max_iter=100,
-               max_cyclic_iter=2, a_init=None, q_init=None, rel_tol=0.0001, alpha=0.5, beta=0.1):
+    def _cvfit(self, split, info_y, info_f, info_r, info_cv, info_pred, splits, lambda_range, max_iter=500,
+               max_cyclic_iter=3, a_init=None, q_init=None, rel_tol=1e-5, alpha=0.0, beta=0.0):
         """Utility function to be used by self.fit()
 
         Parameters
@@ -640,7 +640,7 @@ class NeuraLVARCV(NeuraLVAR):
                           a_init=a_init, q_init=q_init.copy(), rel_tol=rel_tol, xs=xs, alpha=alpha, beta=beta)
             # # different criteria for cross-validation
             # cv[0, split, i] = self.compute_ll(y_test, (a_, f, q_upper, r))
-            # cv[1, split, i] = self.compute_ll_(y_test, (a_, f, q_upper, r))
+            cv[1, split, i] = self.compute_ll_(y_test, (a_, f, q_upper, r))
             # cv[2, split, i] = self.compute_crossvalidation_metric(y_test, (a_, f, q_upper, r))
             # cv[3, split, i] = self.compute_Q(y_test, (a_, f, q_upper, r))
             # cv[4, split, i] = self.compute_logsum_q(y_test, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
@@ -652,8 +652,8 @@ class NeuraLVARCV(NeuraLVAR):
             shm.close()
         return None
 
-    def fit(self, y, f, r, lambda_range=None, max_iter=100, max_cyclic_iter=2, a_init=None, q_init=None,
-            rel_tol=0.0001, restriction=None, alpha=0.5, beta=0.1, use_es=False):
+    def fit(self, y, f, r, lambda_range=None, max_iter=500, max_cyclic_iter=3, a_init=None, q_init=None,
+            rel_tol=1e-5, restriction=None, alpha=0.0, beta=0.0, use_es=False):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         y : ndarray of shape (n_channels, n_samples)
@@ -726,15 +726,18 @@ class NeuraLVARCV(NeuraLVAR):
 
         # Find best mu
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-        index = self.mse_path[5].mean(axis=0).argmax()
+
+        use_es = True
 
         if use_es:
+            index = self.mse_path[1].mean(axis=0).argmax()
             try:
                 best_lambda = lambda_range[np.nanargmin(self.es_path[:index])]
             except ValueError:
                 best_lambda = lambda_range[index]
             print(f'best_regularizing parameter: {best_lambda} using es')
         else:
+            index = self.mse_path[5].mean(axis=0).argmax()
             best_lambda = lambda_range[index]
             print(f'best_regularizing parameter: {best_lambda}')
 

@@ -138,8 +138,8 @@ def expand_roi_indices_as_tup(reg_idx, emod):
 _default_lambda_range =  np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4,])
 
 def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1.0, ROIs=[], alpha=0, beta=0,
-                  lambda_range=None, max_iter=50, max_cyclic_iter=5,
-                  tol=1e-3, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=False):
+                  lambda_range=None, max_iter=500, max_cyclic_iter=3,
+                  tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True):
     logger = logging.getLogger(__name__)
     n, m = f.shape
     nx = m // n_eigenmodes
@@ -217,7 +217,6 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1.0, ROIs=[], alpha
         idx = ((sorted_pow_ratio>var_thr)!=0).argmax()
 
         ROIs = sorted_idx[:idx+1]
-        print('Selected ROIs: ', ROIs)
 
     links_to_check = []
     for i, j in itertools.product(ROIs, repeat=2):
@@ -313,6 +312,18 @@ def _learn_reduced_model_parallel(link_index, info_y, info_f, info_bias_r, info_
     for shm in (shm_y, shm_f, shm_bias_r, shm_ll_r, shm_conv_flag):
         shm.close()
 
+
+def debiased_dev(dev_raw, bias_f, bias_r):
+    d = dev_raw.copy()
+    bias_mat = bias_r - bias_f
+
+    d[d < 0] = 0
+    d[d > 0] += bias_mat[d > 0]
+    np.fill_diagonal(d, 0)
+    d[d < 0] = 0
+    return d
+
+
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
             model_f, conv_flag, label_names, label_vertidx, debug=None):
@@ -347,30 +358,119 @@ class NLGC:
 
         return fig, ax
 
-    def compute_debiased_dev(self):
-        d = self.d_raw.copy()
-        for i in range(0, self.n_segments):
-            bias_mat = self.bias_r[i].copy()
-            bias_mat[bias_mat != 0] -= self.bias_f[i]
+    def compute_avg_debiased_dev(self):
+        d_ub = np.zeros((self.nx, self.nx))
 
-            d[i] += bias_mat
-            np.fill_diagonal(d[i], 0)
-        return d
+        for i in range(0, self.n_segments):
+            d = self.d_raw[i].copy()
+            d[d < -10] = 0
+            d_ub += debiased_dev(d, self.bias_f[i], self.bias_r[i])
+
+        return d_ub/self.n_segments
 
     def fdr(self, alpha=0.1):
-        return fdr_control(np.mean(self.compute_debiased_dev(), axis=0), self.p * self.n_eigenmodes, alpha)
+        return fdr_control(self.compute_avg_debiased_dev(), self.p * self.n_eigenmodes, alpha)
 
     def save_object(self, filename):
-        with open(filename+'.obj', 'wb') as filehandler:
+        with open(filename+'.pkl', 'wb') as filehandler:
             pickle.dump(self, filehandler)
 
     def plot(self):
         pass
 
 
-def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model', n_segments=1, alpha=0, beta=0,
-                  lambda_range=None, max_iter=50, max_cyclic_iter=5, tol=1e-3, sparsity_factor=0.1,
-                  cv=5, label_names=None, label_vertidx=None, use_lapack=True, use_es=False):
+# #revised nlgc_map!
+def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
+        ROIs_names=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, mode='svd_flip', lambda_range=None,
+        max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True, var_thr=1.0):
+    ipdb.set_trace()
+    _check_reference(evoked)
+
+    depth_dict = {'exp': depth, 'limit_depth_chs': 'whiten', 'combine_xyz': 'fro', 'limit': None}
+
+    forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
+        forward, evoked.info, noise_cov, pca, depth_dict, loose, rank)
+
+    if not is_fixed_orient(forward):
+        raise ValueError(f"Cannot work with free orientation forward: {forward}")
+
+    # get the data
+    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
+    M = evoked.data[sel]
+
+    # whiten the data
+    logger.info('Whitening data matrix.')
+    M = np.dot(whitener, M)
+
+
+    # extract label eigenmodes
+    if isinstance(labels, Forward):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels['src']:
+            label_names.extend(label['vertno'])
+    elif isinstance(labels, SourceSpaces):
+        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
+        label_names = []
+        for label in labels: label_names.extend(label['vertno'])
+    elif isinstance(labels, list):
+        if isinstance(labels[0], Label):
+            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
+                                                                   allow_empty=True)
+            label_names = [label.name for label in labels]
+        else:
+            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
+                             'mne.Forward object or list of mne.Labels.')
+
+    # test if there are empty columns
+    sel = np.any(G, axis=0)
+    G = G[:, sel].copy()
+    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
+    src_flip = [i for select, i in zip(sel, src_flip) if select]
+    discarded_labels =[]
+    j = 0
+    for i, sel_ in enumerate(sel[::n_eigenmodes]):
+        if not sel_:
+            discarded_labels.append(labels.pop(i-j))
+            label_vertidx.pop(i-j)
+            j += 1
+    assert j == len(discarded_labels)
+    if j > 0:
+        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
+                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
+
+    ROIs_idx = list()
+
+    if ROIs_names == None:
+        ROIs_idx = list(range(0, len(labels)))
+    elif ROIs_names == 'just_full_model':
+        ROIs_idx = []
+    else:
+        for ROIs_name in ROIs_names:
+            ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
+
+    # Normalization
+    M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
+    G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
+    G /= G_normalizing_factor
+    G *= np.sqrt(M_normalizing_factor)
+    r = 1
+
+    label_names = [label.name for label in labels]
+
+    ipdb.set_trace()
+    out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
+                            alpha=alpha, beta=beta, var_thr=var_thr,
+                            lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
+                            sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
+                            label_vertidx=label_vertidx, use_lapack=use_lapack, use_es=use_es)
+
+    return out_obj
+
+
+def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs=[], n_segments=1, alpha=0, beta=0,
+                  lambda_range=None, max_iter=500, max_cyclic_iter=5, tol=1e-5, sparsity_factor=0.0,
+                  cv=5, label_names=None, label_vertidx=None, use_lapack=True, use_es=True, var_thr=1.0):
     ny, nnx = gain.shape
     nx = nnx // n_eigenmodes
     _, t = M.shape
@@ -388,7 +488,7 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
             _gc_extraction(M[:, n * tt: (n + 1) * tt], gain, r, p=p, p1=p1, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
                            alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
                            max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
-                           use_lapack=use_lapack, use_es=use_es)
+                           use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
 
         d_raw[n] = d_raw_
         bias_r[n] = bias_r_
@@ -402,7 +502,7 @@ def _nlgc_map_opt(name, M, gain, r, p, p1, n_eigenmodes=2, ROIs='just_full_model
     return nlgc_obj
 
 
-def nlgc_map_(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,
+def gain_to_eigenmode(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,
               mode='svd_flip'):
     _check_reference(evoked)
 

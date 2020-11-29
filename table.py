@@ -5,6 +5,7 @@ from nlgc._nlgc import *
 import ipdb
 from codetiming import Timer
 from nlgc._nlgc import _prepare_leadfield_reduction
+from nlgc._nlgc import _nlgc_map_opt
 from nlgc._nlgc import _gc_extraction
 from nlgc._stat import fdr_control
 import warnings
@@ -33,7 +34,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         n2 = 3
         W = np.array([1, 1, alpha])
 
-    G, _ = nlgc_map_(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
+    G, _ = gain_to_eigenmode(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
@@ -222,7 +223,8 @@ if __name__ == "__main__":
     grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src_target, src_origin)
     labels_as_list = src_target
 
-    total_trial = 10
+
+    total_trial = 50
     n_eigenmodes = 2
     lambda_range = np.asanyarray([1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
     max_iter = 500
@@ -246,7 +248,7 @@ if __name__ == "__main__":
     var_thr = 0.95
 
     m_active_vec = [2]
-    m_inactive_vec = [2]
+    m_inactive_vec = [1]
     alpha = -1
 
     tabel_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
@@ -286,29 +288,17 @@ if __name__ == "__main__":
                     print('total patch:', len(patch_idx))
                     print('active patch: ', act_patch)
                     print('inactive patch: ', inact_patch)
-                    print('trial: ', k)
+                    print('trial: ', k+1)
                     t, n = y.shape
                     f = ex_g
                     ROIs = list(range(0, m))
 
-                    d = np.zeros((m, m))
-                    d_b = np.zeros((m, m))
-                    tt = t // n_segments
-                    for n_ in range(0, n_segments):
-                        print('segment: ', n_)
-                        dev_raw, bias_r, bias_f, model_f, conv_flag = \
-                                _gc_extraction(y[n_ * tt: (n_ + 1) * tt, :].T, f, r=r_cov * np.eye(n), p=p, p1=p,
-                                               n_eigenmodes=n_eigenmodes, ROIs=ROIs, lambda_range=lambda_range,
-                                               max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
-                                               tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
+                    temp_obj = _nlgc_map_opt('simulation', y.T, f, r=r_cov, p=p, p1=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
+                                  lambda_range=lambda_range, n_segments=n_segments , var_thr=var_thr,
+                                  max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
+                                  sparsity_factor=sparsity_factor)
 
-                        dev_raw[dev_raw < -10] = 0
-                        d_b += dev_raw
-                        d += debiased_dev(dev_raw, bias_f, bias_r)
-
-                    d_b /= n_segments
-                    d /= n_segments
-                    J = fdr_control(d, p*n_eigenmodes, 0.001)
+                    J = temp_obj.fdr(alpha=0.0001)
 
                     msd_det[k], fls_det[k] = missed_false_detection(JG, J)
                     relaxed_hit_rate[k], relaxed_fls_rate[k] = relaxed_rates(src_target, JG, J, patch_idx)
@@ -320,8 +310,6 @@ if __name__ == "__main__":
                     print('relaxed false : ', relaxed_fls_rate[k])
                     print('################################################################')
                     np.set_printoptions(precision=2)
-                    # patch_all.append(patch_idx)
-                    # J_all[k] = J
                     k += 1
                 except ValueError:
                     print('ValueError! Run it again!')
