@@ -375,10 +375,10 @@ class NLGC:
 
 
 # #revised nlgc_map!
-def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
-        ROIs_names=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, mode='svd_flip', lambda_range=None,
+def nlgc_map(name, evoked, forward, noise_cov, labels, order, r_cov=1, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
+        patch_idx=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, lambda_range=None,
         max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True, var_thr=1.0):
-    ipdb.set_trace()
+
     _check_reference(evoked)
 
     depth_dict = {'exp': depth, 'limit_depth_chs': 'whiten', 'combine_xyz': 'fro', 'limit': None}
@@ -394,67 +394,31 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     M = evoked.data[sel]
 
     # whiten the data
-    logger.info('Whitening data matrix.')
-    M = np.dot(whitener, M)
+    if evoked.comment != 'simulated':
+        logger.info('Whitening data matrix.')
+        M = np.dot(whitener, M)
 
-
-    # extract label eigenmodes
-    if isinstance(labels, Forward):
-        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
-        label_names = []
-        for label in labels['src']:
-            label_names.extend(label['vertno'])
-    elif isinstance(labels, SourceSpaces):
-        G, label_vertidx, src_flip = reduce_lead_field(forward, labels, n_eigenmodes, data=gain.T)
-        label_names = []
-        for label in labels: label_names.extend(label['vertno'])
-    elif isinstance(labels, list):
-        if isinstance(labels[0], Label):
-            G, label_vertidx, src_flip = _extract_label_eigenmodes(forward, labels, gain.T, mode, n_eigenmodes,
-                                                                   allow_empty=True)
-            label_names = [label.name for label in labels]
-        else:
-            raise ValueError('Not supported {labels}: labels are expected to be either an mne.SourceSpace or'
-                             'mne.Forward object or list of mne.Labels.')
-
-    # test if there are empty columns
-    sel = np.any(G, axis=0)
-    G = G[:, sel].copy()
-    label_vertidx = [i for select, i in zip(sel, label_vertidx) if select]
-    src_flip = [i for select, i in zip(sel, src_flip) if select]
-    discarded_labels =[]
-    j = 0
-    for i, sel_ in enumerate(sel[::n_eigenmodes]):
-        if not sel_:
-            discarded_labels.append(labels.pop(i-j))
-            label_vertidx.pop(i-j)
-            j += 1
-    assert j == len(discarded_labels)
-    if j > 0:
-        logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
-                    '\n'.join(map(lambda x: str(x.name), discarded_labels)))
-
-    ROIs_idx = list()
-
-    if ROIs_names == None:
-        ROIs_idx = list(range(0, len(labels)))
-    elif ROIs_names == 'just_full_model':
-        ROIs_idx = []
-    else:
-        for ROIs_name in ROIs_names:
-            ROIs_idx.extend([i for i, label in enumerate(labels) if ROIs_name in label.name])
+    G, label_vertidx, label_names = gain_to_eigenmode(evoked, forward, noise_cov, labels, n_eigenmodes=n_eigenmodes)
 
     # Normalization
-    M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
+    # M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
     G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
     G /= G_normalizing_factor
-    G *= np.sqrt(M_normalizing_factor)
-    r = 1
+    # G *= np.sqrt(M_normalizing_factor)
+    r = r_cov
 
-    label_names = [label.name for label in labels]
+    n, _ = G.shape
+    ex_G = np.zeros((n, len(patch_idx)*n_eigenmodes))
+    for idx, this_patch in enumerate(patch_idx):
+        ex_G[:, idx * n_eigenmodes: (idx+1) * n_eigenmodes] = G[:, this_patch * n_eigenmodes: (this_patch+1) * n_eigenmodes]
 
-    out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
-                            alpha=alpha, beta=beta, var_thr=var_thr,
+    if len(patch_idx) == 0:
+        ROIs = []
+    else:
+        ROIs = list(range(0, len(patch_idx)))
+
+    out_obj = _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
+                            n_segments=n_segments, alpha=alpha, beta=beta, var_thr=var_thr,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                             sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
                             label_vertidx=label_vertidx, use_lapack=use_lapack, use_es=use_es)
@@ -548,7 +512,7 @@ def gain_to_eigenmode(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=
         logger.info('No sources were found in following {:d} ROIs:\n'.format(len(discarded_labels)) +
                     '\n'.join(map(lambda x: str(x.name), discarded_labels)))
 
-    return G, gain
+    return G, label_vertidx, label_names
 
 
 def reduce_lead_field(forward, src, n_eigenmodes, data=None):

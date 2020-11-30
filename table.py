@@ -25,7 +25,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         n2 = 3
         W = np.array([1, 1, alpha])
 
-    G, _ = gain_to_eigenmode(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
+    G, _, _ = gain_to_eigenmode(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
@@ -87,16 +87,20 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
     ## Data generation
     ###############################################################################
     y = x.dot(g.T)
-    px = y.dot(y.T).trace()
 
     noise = np.random.standard_normal(y.shape)
     pn = noise.dot(noise.T).trace()
+    px = y.dot(y.T).trace()
     multiplier = 1e2 * pn / px
 
-    y += noise / np.sqrt(multiplier)
     r_cov = 1 / multiplier
 
-    return ex_g, g, x, y, r_cov, p, JG
+    y += noise/np.sqrt(multiplier)
+
+    evoked_dummy = evoked.pick_types(meg=True, exclude='bads')
+    evoked_simulated = mne.EvokedArray(y.T, evoked_dummy.info, tmin=0.0, comment='simulated', nave=1)
+
+    return ex_g, evoked_simulated, r_cov, p, JG
 
 
 def missed_false_detection(J, J_est):
@@ -202,7 +206,7 @@ if __name__ == "__main__":
     # 'parstriangularis-rh':        0, 5
 
     aud_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
-    corr_thr = 0.65
+    corr_thr = 0.6
     var_thr = 0.95
 
     m_active_vec = [2]
@@ -213,6 +217,7 @@ if __name__ == "__main__":
     tabel_f = np.zeros((len(m_active_vec), len(m_inactive_vec)))
     tabel_rlx_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
     tabel_rlx_f = np.zeros((len(m_active_vec), len(m_inactive_vec)))
+
     for m2, m_inactive in enumerate(m_inactive_vec):
         for m1, m_active in enumerate(m_active_vec):
             m = m_active + m_inactive
@@ -220,8 +225,6 @@ if __name__ == "__main__":
             fls_det = np.zeros((total_trial, 1))
             relaxed_hit_rate = np.zeros((total_trial, 1))
             relaxed_fls_rate = np.zeros((total_trial, 1))
-            # J_all = np.zeros((total_trial, m, m))
-            # patch_all = []
             k = 0
             while k < total_trial:
                 try:
@@ -235,7 +238,8 @@ if __name__ == "__main__":
                         inact_patch_ = np.array(inact_patch_)
                         inact_patch = inact_patch_[np.random.permutation(range(len(inact_patch_)))][:m_inactive]
                         patch_idx = np.hstack((act_patch, np.array(inact_patch)))
-                        ex_g, g, x, y, r_cov, p, JG = data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes)
+                        ex_g, evoked_simulated, r_cov, p, JG = \
+                            data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes)
                         corr = np.abs(np.corrcoef(ex_g[:, :m_active*n_eigenmodes].T))
                         np.fill_diagonal(corr, 0)
                         cnt += 1
@@ -247,14 +251,13 @@ if __name__ == "__main__":
                     print('active patch: ', act_patch)
                     print('inactive patch: ', inact_patch)
                     print('trial: ', k+1)
-                    t, n = y.shape
-                    f = ex_g
+                    t, n = evoked_simulated.data.T.shape
                     ROIs = list(range(0, m))
 
-                    temp_obj = _nlgc_map_opt('simulation', y.T, f, r=r_cov, p=p, p1=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
-                                  lambda_range=lambda_range, n_segments=n_segments, var_thr=var_thr,
-                                  max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
-                                  sparsity_factor=sparsity_factor)
+                    temp_obj = nlgc_map('simulation', evoked_simulated, forward, cov, labels_as_list, r_cov=r_cov,
+                                        order=p, n_eigenmodes=n_eigenmodes, patch_idx=patch_idx, n_segments=n_segments,
+                                        lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
+                                        tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
 
                     J = temp_obj.fdr(alpha=0.0001)
 
@@ -269,11 +272,11 @@ if __name__ == "__main__":
                     print('################################################################')
                     np.set_printoptions(precision=2)
                     k += 1
-                except ValueError:
-                    print('ValueError! Run it again!')
+                except ValueError as err:
+                    print('handling ValueError!', err)
                     continue
-                except np.linalg.LinAlgError:
-                    print('LinAlgError! Run it again!')
+                except np.linalg.LinAlgError as err:
+                    print('handling LinAlgError!', err)
                     continue
                 except RuntimeError as err:
                     print('handling RuntimeError!', err)
