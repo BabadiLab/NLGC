@@ -24,6 +24,8 @@ from multiprocessing import cpu_count, current_process
 import warnings
 import logging
 
+from nlgc._utils import debiased_dev_
+
 plt.ion()
 
 def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
@@ -242,6 +244,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr = 1.0, ROIs=[], alpha
 
     # Parallel
     n_jobs = min(cpu_count(), len(links_to_check))
+
     Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
                                                                                **kwargs) for link in links_to_check)
     # # serial
@@ -313,17 +316,6 @@ def _learn_reduced_model_parallel(link_index, info_y, info_f, info_bias_r, info_
         shm.close()
 
 
-def debiased_dev(dev_raw, bias_f, bias_r):
-    d = dev_raw.copy()
-    bias_mat = bias_r - bias_f
-
-    d[d < 0] = 0
-    d[d > 0] += bias_mat[d > 0]
-    np.fill_diagonal(d, 0)
-    d[d < 0] = 0
-    return d
-
-
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
             model_f, conv_flag, label_names, label_vertidx, debug=None):
@@ -358,21 +350,24 @@ class NLGC:
 
         return fig, ax
 
-    def compute_avg_debiased_dev(self):
+    def avg_debiased_dev(self):
         d_ub = np.zeros((self.nx, self.nx))
 
         for i in range(0, self.n_segments):
-            d = self.d_raw[i].copy()
-            d[d < -10] = 0
-            d_ub += debiased_dev(d, self.bias_f[i], self.bias_r[i])
+            d_ub += debiased_dev_(self.d_raw[i], self.bias_f[i], self.bias_r[i])
 
         return d_ub/self.n_segments
 
     def fdr(self, alpha=0.1):
-        return fdr_control(self.compute_avg_debiased_dev(), self.p * self.n_eigenmodes, alpha)
+        return fdr_control(self.avg_debiased_dev(), self.p * self.n_eigenmodes, alpha)
 
-    def save_object(self, filename):
-        with open(filename+'.pkl', 'wb') as filehandler:
+    def pickle_as(self, filename):
+        if filename.endswith('.pkl') or filename.endswith('.pickled') or filename.endswith('.pickle'):
+            pass
+        else:
+            filename += '.pkl'
+
+        with open(filename, 'wb') as filehandler:
             pickle.dump(self, filehandler)
 
     def plot(self):
@@ -458,7 +453,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 
     label_names = [label.name for label in labels]
 
-    ipdb.set_trace()
     out_obj = _nlgc_map_opt(name, M, G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs_idx, n_segments=n_segments,
                             alpha=alpha, beta=beta, var_thr=var_thr,
                             lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,

@@ -12,6 +12,7 @@ from csslaging import er_cov as cov
 
 import matplotlib
 import matplotlib.pyplot as plt
+import mne
 
 def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes):
 
@@ -181,7 +182,6 @@ if __name__ == "__main__":
     grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src_target, src_origin)
     labels_as_list = src_target
 
-
     total_trial = 50
     n_eigenmodes = 2
     lambda_range = np.asanyarray([1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
@@ -252,7 +252,7 @@ if __name__ == "__main__":
                     ROIs = list(range(0, m))
 
                     temp_obj = _nlgc_map_opt('simulation', y.T, f, r=r_cov, p=p, p1=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
-                                  lambda_range=lambda_range, n_segments=n_segments , var_thr=var_thr,
+                                  lambda_range=lambda_range, n_segments=n_segments, var_thr=var_thr,
                                   max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                                   sparsity_factor=sparsity_factor)
 

@@ -653,7 +653,7 @@ class NeuraLVARCV(NeuraLVAR):
         return None
 
     def fit(self, y, f, r, lambda_range=None, max_iter=500, max_cyclic_iter=3, a_init=None, q_init=None,
-            rel_tol=1e-5, restriction=None, alpha=0.0, beta=0.0, use_es=False):
+            rel_tol=1e-5, restriction=None, alpha=0.0, beta=0.0, use_es=True):
         """Fits the model from given m/eeg data, forward gain and noise covariance
 
         y : ndarray of shape (n_channels, n_samples)
@@ -726,8 +726,6 @@ class NeuraLVARCV(NeuraLVAR):
 
         # Find best mu
         # index = np.argmax(np.sum(np.exp(normalized_cross_lls), axis=0))
-
-        use_es = True
 
         if use_es:
             index = self.mse_path[1].mean(axis=0).argmax()

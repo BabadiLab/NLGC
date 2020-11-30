@@ -12,9 +12,9 @@ warnings.filterwarnings('ignore')
 
 def data_generation():
 
-    n = 15
-    m = 3
-    m_active = 2
+    n = 20
+    m = 10
+    m_active = 4
     p, t = 2, 3000
 
     q = 0.01*np.eye(m)
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     tol = 1e-5
     sparsity_factor = 0.0
     n_segments = 3
-    var_thr = 0.95
+    var_thr = 0.98
 
     t, n = y.shape
     _, m = f.shape

@@ -239,6 +239,16 @@ def old_bias(model, reg_idx, n_eigenmodes=1):
     return bias
 
 
+def debiased_dev_(dev_raw, bias_f, bias_r):
+    d = dev_raw.copy()
+    bias_mat = bias_r - bias_f
+    # d[d < 0] = 0
+    # d[d > 0] += bias_mat[d > 0]
+    d[bias_r != 0] += bias_mat[bias_r != 0]
+    np.fill_diagonal(d, 0)
+    d[d < 0] = 0
+    return d
+
 
 def test_bias():
     q = np.array([[2, 0], [0, 6]])
