@@ -1,3 +1,5 @@
+# Author: Proloy Das <proloy@umd.edu>
+
 import numpy as np
 from matplotlib import pyplot as plt
 
