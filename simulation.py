@@ -90,12 +90,12 @@ if __name__ == "__main__":
     _, m = f.shape
     ROIs = list(range(0, m))
 
-    temp_obj = _nlgc_map_opt('simulation', y.T, f, r=r_cov, p=p, p1=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
-                             lambda_range=lambda_range, n_segments=n_segments , var_thr=var_thr,
+    temp_obj = _nlgc_map_opt('simulation', y.T, f, r=r_cov, order=p, self_history=p, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
+                             lambda_range=lambda_range, n_segments=n_segments, var_thr=var_thr,
                              max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                              sparsity_factor=sparsity_factor)
 
-    J = temp_obj.fdr(alpha=0.1)
+    J = temp_obj.get_J_statistics(alpha=0.1)
 
     msd_det, fls_det = missed_false_detection(JG, J)
     print('################################################################')

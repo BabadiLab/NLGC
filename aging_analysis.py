@@ -69,7 +69,7 @@ if __name__ == "__main__":
                    lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                    sparsity_factor=sparsity_factor, depth=0.0, use_lapack=True)
 
-    from _plot_utils import visualize_con
+    from nlgc._plot_utils import visualize_con
 
     fig, ax = plt.subplots()
     d = out.compute_debiased_dev()[0]

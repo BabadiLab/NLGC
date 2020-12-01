@@ -25,7 +25,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         n2 = 3
         W = np.array([1, 1, alpha])
 
-    G, _, _ = gain_to_eigenmode(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
+    G, _, _ = _prepare_eigenmodes(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
@@ -259,7 +259,7 @@ if __name__ == "__main__":
                                         lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                         tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
 
-                    J = temp_obj.fdr(alpha=0.0001)
+                    J = temp_obj.get_J_statistics(alpha=0.0001)
 
                     msd_det[k], fls_det[k] = missed_false_detection(JG, J)
                     relaxed_hit_rate[k], relaxed_fls_rate[k] = relaxed_rates(src_target, JG, J, patch_idx)

@@ -257,7 +257,7 @@ class NLGC:
         np.fill_diagonal(d, 0)
         return d
 
-    def fdr(self, alpha=0.05):
+    def get_J_statistics(self, alpha=0.05):
         return fdr_control(self.compute_debiased_dev(), self.p * self.n_eigenmodes, alpha)
 
     def save_(self, add):
