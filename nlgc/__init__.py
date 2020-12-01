@@ -1,3 +1,3 @@
-from .opt import *
-from ._stat import *
-from ._utils import *
+from nlgc.opt.opt import *
+from nlgc._stat import *
+from nlgc._utils import *

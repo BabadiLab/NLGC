@@ -2,9 +2,8 @@
 # author: Behrad Soleimani <behrad@umd.edu>
 
 import itertools
-# from nlgc.core import gc_extraction, NLGC
 from multiprocessing import cpu_count, current_process
-
+from functools import reduce
 import copy
 import logging
 import numpy as np
@@ -26,6 +25,7 @@ from scipy import linalg, sparse
 from nlgc._stat import fdr_control
 from nlgc._utils import debias_deviances
 from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV, link_share_memory, create_shared_mem
+import ipdb
 
 
 def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
@@ -334,7 +334,7 @@ class NLGC:
 
         return fig, ax
 
-    @LazyProperty
+    # @LazyProperty
     def avg_debiased_dev(self):
         # d_ub = np.zeros((self.nx, self.nx))
         # for i in range(0, self.n_segments):
@@ -362,12 +362,13 @@ class NLGC:
         pass
 
 
-# #revised nlgc_map!
 def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
         patch_idx=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, lambda_range=None,
         max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True,
         var_thr=1.0):
     _check_reference(evoked)
+
+    ipdb.set_trace()
 
     if not is_fixed_orient(forward):
         raise ValueError(f"Cannot work with free orientation forward: {forward}")
@@ -375,33 +376,34 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     G, label_vertidx, label_names, gain_info, whitener = \
         _prepare_eigenmodes(evoked, forward, noise_cov, labels, n_eigenmodes, loose, depth, pca, rank)
 
+
     # get the data
     sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
     M = evoked.data[sel]
 
     # whiten the data
     logger.info('Whitening data matrix.')
-    M = np.dot(whitener, M)
+    # M = np.dot(whitener, M)
 
     # Normalization
     M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
     G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
     G /= G_normalizing_factor
-    G *= np.sqrt(M_normalizing_factor)
-    r = 1.0
+    # G *= np.sqrt(M_normalizing_factor)
+    r = noise_cov.data[0, 0]
+
+    if len(patch_idx) == 0:
+        raise ValueError("Length of patch_idx should not be zero")
 
     n, _ = G.shape
     ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
     for idx, this_patch in enumerate(patch_idx):
-        ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = G[:, this_patch * n_eigenmodes: (
-                                                                                                        this_patch +
-                                                                                                        1) *
-                                                                                                n_eigenmodes]
+        ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = G[:, this_patch * n_eigenmodes: (this_patch +1) * n_eigenmodes]
 
-    if len(patch_idx) == 0:
-        ROIs = []
-    else:
-        ROIs = list(range(len(patch_idx)))
+    ROIs = list(range(len(patch_idx)))
+
+
+    ipdb.set_trace()
 
     # out_obj = _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
     #                         n_segments=n_segments, alpha=alpha, beta=beta, var_thr=var_thr,

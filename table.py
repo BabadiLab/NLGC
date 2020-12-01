@@ -1,9 +1,9 @@
 # author: Behrad Soleimani <behrad@umd.edu>
 
 from nlgc._nlgc import *
-import ipdb
 from nlgc._nlgc import _prepare_leadfield_reduction
-from nlgc._nlgc import _nlgc_map_opt
+from nlgc._nlgc import _prepare_eigenmodes
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -13,6 +13,8 @@ from csslaging import er_cov as cov
 import matplotlib
 import matplotlib.pyplot as plt
 import mne
+import ipdb
+
 
 def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes):
 
@@ -25,7 +27,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         n2 = 3
         W = np.array([1, 1, alpha])
 
-    G, _, _ = _prepare_eigenmodes(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
+    G, _, _, _, _ = _prepare_eigenmodes(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
@@ -99,8 +101,9 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
 
     evoked_dummy = evoked.pick_types(meg=True, exclude='bads')
     evoked_simulated = mne.EvokedArray(y.T, evoked_dummy.info, tmin=0.0, comment='simulated', nave=1)
+    cov_simulated = mne.Covariance(r_cov * np.eye(n), cov['names'], cov['bads'], cov['projs'], cov['nfree'])
 
-    return ex_g, evoked_simulated, r_cov, p, JG
+    return ex_g, evoked_simulated, cov_simulated, p, JG
 
 
 def missed_false_detection(J, J_est):
@@ -177,6 +180,8 @@ if __name__ == "__main__":
     labels = e._load_labels()
     labels_as_list = list(labels.values())
     forward = e.load_fwd(src='ico-4', ndvar=False)
+    forward = mne.convert_forward_solution(forward, force_fixed=True)
+
     src_origin = forward['src']
 
     epochs = ds['epochs'][ds['noise'] == '-6dB']
@@ -238,7 +243,7 @@ if __name__ == "__main__":
                         inact_patch_ = np.array(inact_patch_)
                         inact_patch = inact_patch_[np.random.permutation(range(len(inact_patch_)))][:m_inactive]
                         patch_idx = np.hstack((act_patch, np.array(inact_patch)))
-                        ex_g, evoked_simulated, r_cov, p, JG = \
+                        ex_g, evoked_simulated, cov_simulated, p, JG = \
                             data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_list, n_eigenmodes)
                         corr = np.abs(np.corrcoef(ex_g[:, :m_active*n_eigenmodes].T))
                         np.fill_diagonal(corr, 0)
@@ -253,11 +258,11 @@ if __name__ == "__main__":
                     print('trial: ', k+1)
                     t, n = evoked_simulated.data.T.shape
                     ROIs = list(range(0, m))
-
-                    temp_obj = nlgc_map('simulation', evoked_simulated, forward, cov, labels_as_list, r_cov=r_cov,
+                    temp_obj = nlgc_map('simulation', evoked_simulated, forward, cov_simulated, labels_as_list,
                                         order=p, n_eigenmodes=n_eigenmodes, patch_idx=patch_idx, n_segments=n_segments,
                                         lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                         tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
+
 
                     J = temp_obj.get_J_statistics(alpha=0.0001)
 
