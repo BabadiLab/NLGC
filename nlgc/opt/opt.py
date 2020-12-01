@@ -596,14 +596,14 @@ class NeuraLVARCV(NeuraLVAR):
         # If Estimation stability criterion is used we need cv_mat[0] and pred_mat
         # else we just use $\lambda * ||A||_1$ as the metric.
         if use_es:
-            index = self.mse_path[1].mean(axis=0).argmax()
+            index = self.mse_path[0].mean(axis=0).argmax()
             try:
                 best_lambda = lambda_range[np.nanargmin(self.es_path[:index])]
             except ValueError:
                 best_lambda = lambda_range[index]
             print(f'best_regularizing parameter: {best_lambda} using es')
         else:
-            index = self.mse_path[5].mean(axis=0).argmax()
+            index = self.mse_path[1].mean(axis=0).argmax()
             best_lambda = lambda_range[index]
             print(f'best_regularizing parameter: {best_lambda}')
 

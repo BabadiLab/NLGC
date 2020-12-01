@@ -368,8 +368,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         var_thr=1.0):
     _check_reference(evoked)
 
-    ipdb.set_trace()
-
     if not is_fixed_orient(forward):
         raise ValueError(f"Cannot work with free orientation forward: {forward}")
 
@@ -402,9 +400,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 
     ROIs = list(range(len(patch_idx)))
 
-
-    ipdb.set_trace()
-
     # out_obj = _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
     #                         n_segments=n_segments, alpha=alpha, beta=beta, var_thr=var_thr,
     #                         lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
@@ -422,6 +417,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     conv_flag = np.zeros((n_segments, len_patch_idx, len_patch_idx))
     models = []
 
+    ipdb.set_trace()
     for n in range(0, n_segments):
         d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
             _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
