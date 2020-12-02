@@ -45,10 +45,10 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
         assert x_.flags['C_CONTIGUOUS']
 
     try:
-        _s = linalg.solve_discrete_are(a.T, f.T, q, r)
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=False)
     except np.linalg.LinAlgError:
-        import ipdb;
-        ipdb.set_trace()
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=True)
+
     temp = f.dot(_s)
     temp2 = temp.dot(f.T) + r
     (l, low) = linalg.cho_factor(temp2, check_finite=False)
@@ -68,6 +68,8 @@ def sskf(y, a, f, q, r, xs=None, use_lapack=True):
     b = b.T  # Smoother Gain
     s_hat = s - b.dot(_s).dot(b.T)  # See README what this means!
     s_ = linalg.solve_discrete_lyapunov(b, s_hat)
+    if (np.diag(s_) <= 0).any():
+        raise ValueError('diag(s_) values are not non-negative!')
     # s_ = s + b.dot(s - _s).dot(b.T)     # Approximation from Elvira's paper
 
     f, a, k, b = align_cast((f, a, k, b), use_lapack)
@@ -162,18 +164,16 @@ def sskfcv(y, a, f, q, r, xs=None, use_lapack=True):
         assert x_.flags['C_CONTIGUOUS']
 
     try:
-        _s = linalg.solve_discrete_are(a.T, f.T, q, r)
-    except np.linalg.LinAlgError:
-        import ipdb;
-        ipdb.set_trace()
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=True)
+    except ValueError:
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=False)
+
     temp = f.dot(_s)
     temp2 = temp.dot(f.T) + r
     (l, low) = linalg.cho_factor(temp2, check_finite=False)
     k = linalg.cho_solve((l, low), temp, check_finite=False)
     k = k.T  # Kalman Gain
 
-    # import ipdb
-    # ipdb.set_trace()
     temp2_inv = linalg.cho_solve((l, low), np.eye(dy), check_finite=False)
     temp3 = f.T.dot(temp2_inv.dot(f))
     l = a.dot(np.eye(dx) - k.dot(f))
@@ -211,7 +211,6 @@ def sskfcv(y, a, f, q, r, xs=None, use_lapack=True):
             # x_[i] = k.dot(temp) + x_[i]
             dot(1.0, k, temp, beta=1.0, y=x_[i], overwrite_y=True)
 
-    # ipdb.set_trace()
     e = y - _x.dot(f.T)
     temp4 = e.dot(temp2_inv)
     n = np.empty_like(y)
@@ -219,8 +218,8 @@ def sskfcv(y, a, f, q, r, xs=None, use_lapack=True):
     for i in reversed(range(t)):
         n[i] = temp4[i] - k_.T.dot(x_[i])
         if i > 0:
-            x_[i-1] =  f.T.dot(temp4[i]) + l.T.dot(x_[i])
-    model_fit = (n * n).sum() / (t *  np.diag(c).sum()) ** 2
+            x_[i - 1] = f.T.dot(temp4[i]) + l.T.dot(x_[i])
+    model_fit = (n * n).sum() / (t * np.diag(c).sum()) ** 2
     return -model_fit
 
 
@@ -267,10 +266,10 @@ def sskf_prediction(y, a, f, q, r, xs=None, use_lapack=True):
         assert x_.flags['C_CONTIGUOUS']
 
     try:
-        _s = linalg.solve_discrete_are(a.T, f.T, q, r)
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=False)
     except np.linalg.LinAlgError:
-        import ipdb;
-        ipdb.set_trace()
+        _s = linalg.solve_discrete_are(a.T, f.T, q, r, balanced=True)
+
     temp = f.dot(_s)
     temp2 = temp.dot(f.T) + r
     (l, low) = linalg.cho_factor(temp2, check_finite=False)
@@ -347,16 +346,12 @@ def align_cast(args, use_lapack):
 
 
 def test_sskf(t=1000):
-    import cProfile
-    import io
-    import pstats
     from matplotlib import pyplot as plt
 
-    
     # n, m = 155, 6*2*68
     n, m = 3, 3
     q = np.eye(m)
-    r = 0.01*np.eye(n)
+    r = 0.01 * np.eye(n)
     sn = np.random.standard_normal((m + n) * t)
     u = sn[:m * t]
     u.shape = (t, m)

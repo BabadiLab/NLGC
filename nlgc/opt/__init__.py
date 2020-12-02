@@ -1,1 +1,1 @@
-from .opt import NeuraLVAR, _NeuraLVARCV
+from .opt import NeuraLVAR, NeuraLVARCV, link_share_memory, create_shared_mem

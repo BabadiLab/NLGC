@@ -1,11 +1,10 @@
+# Author: Proloy Das <proloy@umd.edu>
+
 import numpy as np
 from matplotlib import pyplot as plt
 
 
-# import warnings
-# warnings.filterwarnings('ignore')
-
-def visualize_con(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={}, cbarlabel="", cmap='seismic'):
+def visualize_connectivity(con, label_names, n_eigenmodes, ax=None, title=None, cbar_kw={}, cbarlabel="", cmap='seismic'):
     lh = []
     rh = []
     for i, label in enumerate(label_names):
