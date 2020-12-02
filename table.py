@@ -217,7 +217,7 @@ if __name__ == "__main__":
     var_thr = 0.95
 
     m_active_vec = [2]
-    m_inactive_vec = [2]
+    m_inactive_vec = [1]
     alpha = -1
 
     tabel_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
