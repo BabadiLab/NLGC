@@ -69,13 +69,13 @@ if __name__ == "__main__":
                    lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
                    sparsity_factor=sparsity_factor, depth=0.0, use_lapack=True)
 
-    from nlgc._plot_utils import visualize_con
+    from nlgc._plot_utils import visualize_connectivity
 
     fig, ax = plt.subplots()
     d = out.compute_debiased_dev()[0]
     # d[d < 0] = 0
     warnings.filterwarnings('ignore')
-    im, cbar = visualize_con(d, out._labels, n_eigenmodes=1)
+    im, cbar = visualize_connectivity(d, out._labels, n_eigenmodes=1)
 
     # with open('p43.pkl', 'wb') as fp:
     #     pickle.dump(out, fp)

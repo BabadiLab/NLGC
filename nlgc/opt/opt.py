@@ -2,6 +2,7 @@ from itertools import product
 from multiprocessing import shared_memory, current_process
 
 import logging
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import re
@@ -10,11 +11,9 @@ from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
 
-from nlgc.opt.e_step import sskf, sskfcv, align_cast, sskf_prediction
-from nlgc.opt.m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
-                             compute_cross_ll, compute_Q)
-import matplotlib
-import matplotlib.pyplot as plt
+from .e_step import sskf, sskfcv, align_cast, sskf_prediction
+from .m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
+                     compute_cross_ll, compute_Q)
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
@@ -286,7 +285,7 @@ class NeuraLVAR:
         return sskf_prediction(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
 
     def compute_bias(self, y):
-        from .._utils import sample_path_bias
+        from .._bias_utils import sample_path_bias
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
@@ -294,7 +293,7 @@ class NeuraLVAR:
         return bias
 
     def compute_bias_idx(self, y, source):
-        from .._utils import bias_by_idx
+        from .._bias_utils import bias_by_idx
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
@@ -428,6 +427,7 @@ class NeuraLVAR:
         fig, ax = plt.subplots()
         ax.plot(self._lls[0])
         return fig, ax
+
 
 class NeuraLVARCV(NeuraLVAR):
     """Neural Latent Vector Auto-Regressive model (supports cross-validation)

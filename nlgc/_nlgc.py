@@ -3,12 +3,13 @@
 
 import itertools
 from multiprocessing import cpu_count, current_process
-from functools import reduce
+
 import copy
 import logging
 import numpy as np
 import pickle
 import warnings
+from functools import reduce
 from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
 from mne import (Forward, Label)
@@ -22,117 +23,133 @@ from mne.source_space import SourceSpaces
 from mne.utils import (logger, _check_option, _validate_type)
 from scipy import linalg, sparse
 
-from nlgc._stat import fdr_control
-from nlgc._utils import debias_deviances
-from nlgc.opt.opt import NeuraLVAR, NeuraLVARCV, link_share_memory, create_shared_mem
-import ipdb
-
-
-def truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
-    if n_components > min(*a.shape):
-        raise ValueError('n_components={:d} should be smaller than '
-                         'min({:d}, {:d})'.format(n_components, *a.shape))
-    u, s, vh = linalg.svd(a, full_matrices=False, compute_uv=True,
-                          overwrite_a=True, check_finite=True,
-                          lapack_driver='gesdd')
-    if return_pecentage_exaplained:
-        return vh[:n_components] * s[:n_components][:, None], s[:n_components].sum() / s.sum()
-    return vh[:n_components] * s[:n_components][:, None]
-
-
-_svd_funcs = {
-    'svd_flip': lambda flip, data, n_components: truncatedsvd(flip * data, n_components),
-    'svd': lambda flip, data, n_components: truncatedsvd(data, n_components)
-}
-
-
-# Note for covariance, source_weighting needs to be applied twice!
-def _reapply_source_weighting(X, source_weighting):
-    X *= source_weighting[:, None]
-    return X
-
-
-def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=2, allow_empty=False,
-        trans=None, mri_resolution=True, ):
-    "Zero columns corresponds to empty labels"
-    src = fwd['src']
-    _validate_type(src, SourceSpaces)
-    _check_option('mode', mode, ['svd', 'svd_flip'] + ['auto'])
-    func = _svd_funcs[mode]
-
-    if len(src) > 2:
-        if src[0]['type'] != 'surf' or src[1]['type'] != 'surf':
-            raise ValueError('The first 2 source spaces have to be surf type')
-        if any(np.any(s['type'] != 'vol') for s in src[2:]):
-            raise ValueError('source spaces have to be of vol type')
-
-        n_aparc = len(labels)
-        n_aseg = len(src[2:])
-        n_labels = n_aparc + n_aseg
-    else:
-        n_labels = len(labels)
-
-    # create a dummy stc
-    kind = src.kind
-    vertno = [s['vertno'] for s in src]
-    nvert = np.array([len(v) for v in vertno])
-    if kind == 'surface':
-        stc = SourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
-    elif kind == 'mixed':
-        stc = MixedSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
-    else:
-        stc = VolSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
-    stcs = [stc]
-
-    vertno = None
-    for si, stc in enumerate(stcs):
-        if vertno is None:
-            vertno = copy.deepcopy(stc.vertices)  # avoid keeping a ref
-            nvert = np.array([len(v) for v in vertno])
-            label_vertidx, src_flip = \
-                _prepare_label_extraction(stc, labels, src, mode.replace('svd', 'mean'),
-                                          allow_empty)
-        if isinstance(stc, (_BaseVolSourceEstimate,
-                            _BaseVectorSourceEstimate)):
-            _check_option(
-                'mode', mode, ('svd',),
-                'when using a volume or mixed source space')
-            mode = 'svd' if mode == 'auto' else mode
-        else:
-            mode = 'svd_flip' if mode == 'auto' else mode
-
-        logger.info('Extracting time courses for %d labels (mode: %s)'
-                    % (n_labels, mode))
-
-        if data is None:
-            logger.info('Using the raw forward solution')
-            data = np.swapaxes(fwd['sol']['data'], 0, 1)  # (n_sources, n_channels)
-        data = data.copy()
-
-        # do the extraction
-        label_eigenmodes = np.zeros((n_labels * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
-        for i, (vertidx, flip, label) in enumerate(zip(label_vertidx, src_flip, labels)):
-            if vertidx is not None:
-                if isinstance(vertidx, sparse.csr_matrix):
-                    assert mri_resolution
-                    assert vertidx.shape[1] == data.shape[0]
-                    this_data = np.reshape(data, (data.shape[0], -1))
-                    this_data = vertidx * this_data
-                    this_data.shape = \
-                        (this_data.shape[0],) + stc.data.shape[1:]
-                else:
-                    this_data = data[vertidx]
-                label_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = \
-                    func(flip, this_data, n_eigenmodes)
-
-        return label_eigenmodes.T, label_vertidx, src_flip
-
-
-def expand_roi_indices_as_tup(reg_idx, emod):
-    return tuple(range(reg_idx * emod, reg_idx * emod + emod))
+from .opt import *
+from ._stat import fdr_control
+from ._bias_utils import debias_deviances
+from ._gen_utils import LazyProperty
 
 
 _default_lambda_range = np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4, ])
+
+
+class NLGC:
+    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
+            model_f, conv_flag, label_names, label_vertidx, debug=None):
+
+        self.subject = subject
+        self.nx = nx
+        self.ny = ny
+        self.t = t
+        self.p = p
+        self.n_eigenmodes = n_eigenmodes
+        self.n_segments = n_segments
+        self.d_raw = d_raw
+        self.bias_f = bias_f
+        self.bias_r = bias_r
+        self._model_f = model_f
+        self._conv_flag = conv_flag
+        self._labels = label_names
+        self._label_vertidx = label_vertidx
+        self._debug = debug
+
+    def _plot_reduced_models_convergence(self, max_itr=1):
+        fig, ax = plt.subplots(self.n_segments)
+        for conv_, ax_ in zip(self._conv_flag, ax):
+            ax_.hist(np.reshape(conv_ / max_itr, (1, self.nx ** 2)).T)
+
+        return fig, ax
+
+    @LazyProperty
+    def avg_debiased_dev(self):
+        debiased_deviances = [debias_deviances(*args) for args in zip(self.d_raw, self.bias_f, self.bias_r)]
+        if self.n_segments > 1:
+            return reduce(lambda x, y: x + y, debiased_deviances) / self.n_segments
+        else:
+            return debiased_deviances[0]
+
+    def get_J_statistics(self, alpha=0.1):
+        return fdr_control(self.avg_debiased_dev(), self.p * self.n_eigenmodes, alpha)
+
+    def pickle_as(self, filename):
+        if filename.endswith('.pkl') or filename.endswith('.pickled') or filename.endswith('.pickle'):
+            pass
+        else:
+            filename += '.pkl'
+
+        with open(filename, 'wb') as filehandler:
+            pickle.dump(self, filehandler)
+
+    def plot(self):
+        pass
+
+
+def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
+        patch_idx=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, lambda_range=None,
+        max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True,
+        var_thr=1.0):
+    _check_reference(evoked)
+
+    if not is_fixed_orient(forward):
+        raise ValueError(f"Cannot work with free orientation forward: {forward}")
+
+    G, label_vertidx, label_names, gain_info, whitener = \
+        _prepare_eigenmodes(evoked, forward, noise_cov, labels, n_eigenmodes, loose, depth, pca, rank)
+
+    # get the data
+    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
+    M = evoked.data[sel]
+
+    # whiten the data
+    logger.info('Whitening data matrix.')
+    M = np.dot(whitener, M)
+
+    # Normalization
+    M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
+    G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
+    G /= G_normalizing_factor
+    # G *= np.sqrt(M_normalizing_factor)
+    M /= np.sqrt(M_normalizing_factor)
+    r = 1 / M_normalizing_factor
+
+    if len(patch_idx) == 0:
+        raise ValueError("Length of patch_idx should not be zero")
+
+    n, _ = G.shape
+    ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
+    for idx, this_patch in enumerate(patch_idx):
+        ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = \
+            G[:, this_patch * n_eigenmodes: (this_patch + 1) * n_eigenmodes]
+    ROIs = list(range(len(patch_idx)))
+
+    n, nnx = ex_G.shape
+    len_patch_idx = nnx // n_eigenmodes
+    _, t = M.shape
+    tt = t // n_segments
+
+    d_raw = np.zeros((n_segments, len_patch_idx, len_patch_idx))
+    bias_r = np.zeros((n_segments, len_patch_idx, len_patch_idx))
+    bias_f = np.zeros((n_segments, 1))
+    conv_flag = np.zeros((n_segments, len_patch_idx, len_patch_idx))
+    models = []
+
+    for n in range(0, n_segments):
+        print('Segment: ', n + 1)
+        d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
+            _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
+                           ROIs=ROIs,
+                           alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
+                           max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
+                           use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
+        d_raw[n] = d_raw_
+        bias_r[n] = bias_r_
+        bias_f[n] = bias_f_
+        models.append(model_f)
+        conv_flag[n] = conv_flag_
+
+    nlgc_obj = NLGC(name, len_patch_idx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
+                    conv_flag, label_names, label_vertidx)
+
+    return nlgc_obj
 
 
 def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0, beta=0,
@@ -213,8 +230,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
         if i == j:
             continue
         # Exclude small cross-regression cases
-        target = expand_roi_indices_as_tup(j, n_eigenmodes)
-        source = expand_roi_indices_as_tup(i, n_eigenmodes)
+        target = _expand_roi_indices_as_tup(j, n_eigenmodes)
+        source = _expand_roi_indices_as_tup(i, n_eigenmodes)
         if sparsity[target, source].sum() <= sparsity_factor * sparsity[target, target].sum():
             continue
         # Append rest of the links to check
@@ -261,8 +278,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
 
 def _learn_reduced_model(i, j, y, f, r, lambda_f, a, q, n, p, p1, n_eigenmodes, use_lapack, alpha, beta,
         **kwargs):
-    target = expand_roi_indices_as_tup(j, n_eigenmodes)
-    source = expand_roi_indices_as_tup(i, n_eigenmodes)
+    target = _expand_roi_indices_as_tup(j, n_eigenmodes)
+    source = _expand_roi_indices_as_tup(i, n_eigenmodes)
     link = '->'.join(map(lambda x: ','.join(map(str, x)), (source, target)))
     a_init = a.copy()
     a_init[:, target, source] = 0.0
@@ -298,167 +315,6 @@ def _learn_reduced_model_parallel(link_index, info_y, info_f, info_bias_r, info_
     conv_flag[j, i] = flag
     for shm in (shm_y, shm_f, shm_bias_r, shm_ll_r, shm_conv_flag):
         shm.close()
-
-
-class NLGC:
-    def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
-            model_f, conv_flag, label_names, label_vertidx, debug=None):
-
-        self.subject = subject
-        self.nx = nx
-        self.ny = ny
-        self.t = t
-        self.p = p
-        self.n_eigenmodes = n_eigenmodes
-        self.n_segments = n_segments
-        self.d_raw = d_raw
-        self.bias_f = bias_f
-        self.bias_r = bias_r
-        self._model_f = model_f
-        self._conv_flag = conv_flag
-        self._labels = label_names
-        self._label_vertidx = label_vertidx
-        self._debug = debug
-
-    def _plot_reduced_models_convergence(self, max_itr=1):
-        fig, ax = plt.subplots(self.n_segments)
-        for conv_, ax_ in zip(self._conv_flag, ax):
-            ax_.hist(np.reshape(conv_ / max_itr, (1, self.nx ** 2)).T)
-
-        return fig, ax
-
-    # @LazyProperty
-    def avg_debiased_dev(self):
-        debiased_deviances = [debias_deviances(*args) for args in zip(self.d_raw, self.bias_f, self.bias_r)]
-        if self.n_segments > 1:
-            return reduce(lambda x, y: x + y, debiased_deviances)/self.n_segments
-        else:
-            return debiased_deviances[0]
-
-    def get_J_statistics(self, alpha=0.1):
-        return fdr_control(self.avg_debiased_dev(), self.p * self.n_eigenmodes, alpha)
-
-    def pickle_as(self, filename):
-        if filename.endswith('.pkl') or filename.endswith('.pickled') or filename.endswith('.pickle'):
-            pass
-        else:
-            filename += '.pkl'
-
-        with open(filename, 'wb') as filehandler:
-            pickle.dump(self, filehandler)
-
-    def plot(self):
-        pass
-
-
-def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None, n_eigenmodes=2, alpha=0, beta=0,
-        patch_idx=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, lambda_range=None,
-        max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True,
-        var_thr=1.0):
-    _check_reference(evoked)
-
-    if not is_fixed_orient(forward):
-        raise ValueError(f"Cannot work with free orientation forward: {forward}")
-
-    G, label_vertidx, label_names, gain_info, whitener = \
-        _prepare_eigenmodes(evoked, forward, noise_cov, labels, n_eigenmodes, loose, depth, pca, rank)
-
-
-    # get the data
-    sel = [evoked.ch_names.index(name) for name in gain_info['ch_names']]
-    M = evoked.data[sel]
-
-    # whiten the data
-    logger.info('Whitening data matrix.')
-    M = np.dot(whitener, M)
-
-    # Normalization
-    M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
-    G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
-    G /= G_normalizing_factor
-    # G *= np.sqrt(M_normalizing_factor)
-    M /= np.sqrt(M_normalizing_factor)
-    r = 1/M_normalizing_factor
-
-    if len(patch_idx) == 0:
-        raise ValueError("Length of patch_idx should not be zero")
-
-    n, _ = G.shape
-    ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
-    for idx, this_patch in enumerate(patch_idx):
-        ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = G[:, this_patch * n_eigenmodes: (this_patch +1) * n_eigenmodes]
-
-    ROIs = list(range(len(patch_idx)))
-
-    # out_obj = _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=n_eigenmodes, ROIs=ROIs,
-    #                         n_segments=n_segments, alpha=alpha, beta=beta, var_thr=var_thr,
-    #                         lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol,
-    #                         sparsity_factor=sparsity_factor, cv=cv, label_names=label_names,
-    #                         label_vertidx=label_vertidx, use_lapack=use_lapack, use_es=use_es)
-
-    n, nnx = ex_G.shape
-    len_patch_idx = nnx // n_eigenmodes
-    _, t = M.shape
-    tt = t // n_segments
-
-    d_raw = np.zeros((n_segments, len_patch_idx, len_patch_idx))
-    bias_r = np.zeros((n_segments, len_patch_idx, len_patch_idx))
-    bias_f = np.zeros((n_segments, 1))
-    conv_flag = np.zeros((n_segments, len_patch_idx, len_patch_idx))
-    models = []
-
-    for n in range(0, n_segments):
-        print('Segment: ', n + 1)
-        d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
-            _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
-                           ROIs=ROIs,
-                           alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
-                           max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
-                           use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
-        d_raw[n] = d_raw_
-        bias_r[n] = bias_r_
-        bias_f[n] = bias_f_
-        models.append(model_f)
-        conv_flag[n] = conv_flag_
-
-    nlgc_obj = NLGC(name, len_patch_idx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
-                    conv_flag, label_names, label_vertidx)
-
-    return nlgc_obj
-
-
-# def _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=2, ROIs=[], n_segments=1, alpha=0, beta=0,
-#                   lambda_range=None, max_iter=500, max_cyclic_iter=5, tol=1e-5, sparsity_factor=0.0,
-#                   cv=5, label_names=None, label_vertidx=None, use_lapack=True, use_es=True, var_thr=1.0):
-#     ny, nnx = ex_G.shape
-#     nx = nnx // n_eigenmodes
-#     _, t = M.shape
-#     tt = t // n_segments
-#
-#     d_raw = np.zeros((n_segments, nx, nx))
-#     bias_r = np.zeros((n_segments, nx, nx))
-#     bias_f = np.zeros((n_segments, 1))
-#     conv_flag = np.zeros((n_segments, nx, nx))
-#     models = []
-#
-#     for n in range(0, n_segments):
-#         print('Segment: ', n+1)
-#         d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
-#             _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history,
-#             n_eigenmodes=n_eigenmodes, ROIs=ROIs,
-#                            alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
-#                            max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
-#                            use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
-#         d_raw[n] = d_raw_
-#         bias_r[n] = bias_r_
-#         bias_f[n] = bias_f_
-#         models.append(model_f)
-#         conv_flag[n] = conv_flag_
-#
-#     nlgc_obj = NLGC(name, nx, ny, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
-#                     conv_flag, label_names, label_vertidx)
-#
-#     return nlgc_obj
 
 
 def _prepare_eigenmodes(evoked, forward, noise_cov, labels, n_eigenmodes=2, loose=0.0, depth=0.0, pca=True, rank=None,
@@ -528,8 +384,8 @@ def _reduce_lead_field(forward, src, n_eigenmodes, data=None):
     grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src, forward['src'])
     group_eigenmodes = np.zeros((sum(n_groups) * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
     for i, this_grouped_vertidx in enumerate(grouped_vertidx):
-        this_group_eigenmodes, percentage_explained = truncatedsvd(data[this_grouped_vertidx],
-                                                                   n_eigenmodes, return_pecentage_exaplained=True)
+        this_group_eigenmodes, percentage_explained = _truncatedsvd(data[this_grouped_vertidx],
+                                                                    n_eigenmodes, return_pecentage_exaplained=True)
         group_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = this_group_eigenmodes
 
     src_flips = [None] * sum(n_groups)
@@ -586,16 +442,105 @@ def _prepare_leadfield_reduction(src_target, src_origin):
     return grouped_vertidx, n_groups, n_verts
 
 
-class LazyProperty:
-    "http://blog.pythonisito.com/2008/08/lazy-descriptors.html"
+def _extract_label_eigenmodes(fwd, labels, data=None, mode='mean', n_eigenmodes=2, allow_empty=False,
+        trans=None, mri_resolution=True, ):
+    "Zero columns corresponds to empty labels"
+    src = fwd['src']
+    _validate_type(src, SourceSpaces)
+    _check_option('mode', mode, ['svd', 'svd_flip'] + ['auto'])
+    func = _svd_funcs[mode]
 
-    def __init__(self, func):
-        self._func = func
-        self.__name__ = func.__name__
-        self.__doc__ = func.__doc__
+    if len(src) > 2:
+        if src[0]['type'] != 'surf' or src[1]['type'] != 'surf':
+            raise ValueError('The first 2 source spaces have to be surf type')
+        if any(np.any(s['type'] != 'vol') for s in src[2:]):
+            raise ValueError('source spaces have to be of vol type')
 
-    def __get__(self, obj, klass=None):
-        if obj is None:
-            return None
-        result = obj.__dict__[self.__name__] = self._func(obj)
-        return result
+        n_aparc = len(labels)
+        n_aseg = len(src[2:])
+        n_labels = n_aparc + n_aseg
+    else:
+        n_labels = len(labels)
+
+    # create a dummy stc
+    kind = src.kind
+    vertno = [s['vertno'] for s in src]
+    nvert = np.array([len(v) for v in vertno])
+    if kind == 'surface':
+        stc = SourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
+    elif kind == 'mixed':
+        stc = MixedSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
+    else:
+        stc = VolSourceEstimate(np.empty(nvert.sum()), vertno, 0.0, 0.0, 'dummy', )
+    stcs = [stc]
+
+    vertno = None
+    for si, stc in enumerate(stcs):
+        if vertno is None:
+            vertno = copy.deepcopy(stc.vertices)  # avoid keeping a ref
+            nvert = np.array([len(v) for v in vertno])
+            label_vertidx, src_flip = \
+                _prepare_label_extraction(stc, labels, src, mode.replace('svd', 'mean'),
+                                          allow_empty)
+        if isinstance(stc, (_BaseVolSourceEstimate,
+                            _BaseVectorSourceEstimate)):
+            _check_option(
+                'mode', mode, ('svd',),
+                'when using a volume or mixed source space')
+            mode = 'svd' if mode == 'auto' else mode
+        else:
+            mode = 'svd_flip' if mode == 'auto' else mode
+
+        logger.info('Extracting time courses for %d labels (mode: %s)'
+                    % (n_labels, mode))
+
+        if data is None:
+            logger.info('Using the raw forward solution')
+            data = np.swapaxes(fwd['sol']['data'], 0, 1)  # (n_sources, n_channels)
+        data = data.copy()
+
+        # do the extraction
+        label_eigenmodes = np.zeros((n_labels * n_eigenmodes,) + data.shape[1:], dtype=data.dtype)
+        for i, (vertidx, flip, label) in enumerate(zip(label_vertidx, src_flip, labels)):
+            if vertidx is not None:
+                if isinstance(vertidx, sparse.csr_matrix):
+                    assert mri_resolution
+                    assert vertidx.shape[1] == data.shape[0]
+                    this_data = np.reshape(data, (data.shape[0], -1))
+                    this_data = vertidx * this_data
+                    this_data.shape = \
+                        (this_data.shape[0],) + stc.data.shape[1:]
+                else:
+                    this_data = data[vertidx]
+                label_eigenmodes[i * n_eigenmodes:(i + 1) * n_eigenmodes] = \
+                    func(flip, this_data, n_eigenmodes)
+
+        return label_eigenmodes.T, label_vertidx, src_flip
+
+
+def _expand_roi_indices_as_tup(reg_idx, emod):
+    return tuple(range(reg_idx * emod, reg_idx * emod + emod))
+
+
+def _truncatedsvd(a, n_components=2, return_pecentage_exaplained=False):
+    if n_components > min(*a.shape):
+        raise ValueError('n_components={:d} should be smaller than '
+                         'min({:d}, {:d})'.format(n_components, *a.shape))
+    u, s, vh = linalg.svd(a, full_matrices=False, compute_uv=True,
+                          overwrite_a=True, check_finite=True,
+                          lapack_driver='gesdd')
+    if return_pecentage_exaplained:
+        return vh[:n_components] * s[:n_components][:, None], s[:n_components].sum() / s.sum()
+    return vh[:n_components] * s[:n_components][:, None]
+
+
+_svd_funcs = {
+    'svd_flip': lambda flip, data, n_components: _truncatedsvd(flip * data, n_components),
+    'svd': lambda flip, data, n_components: _truncatedsvd(data, n_components)
+}
+
+
+# Note for covariance, source_weighting needs to be applied twice!
+def _reapply_source_weighting(X, source_weighting):
+    X *= source_weighting[:, None]
+    return X
