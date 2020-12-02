@@ -27,7 +27,7 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
         n2 = 3
         W = np.array([1, 1, alpha])
 
-    G, _, _, _, _ = _prepare_eigenmodes(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
+    G, _, _, _, whitener = _prepare_eigenmodes(evoked, forward, cov, labels_as_list, n_eigenmodes=n2)
 
     n, _ = G.shape
     g = np.zeros((n, len(patch_idx)))
@@ -97,11 +97,13 @@ def data_generation(patch_idx, m_active, alpha, evoked, forward, cov, labels_as_
 
     r_cov = 1 / multiplier
 
-    y += noise/np.sqrt(multiplier)
+    y += noise*np.sqrt(r_cov)
 
+    y = np.linalg.solve(whitener, y.T).T
     evoked_dummy = evoked.pick_types(meg=True, exclude='bads')
     evoked_simulated = mne.EvokedArray(y.T, evoked_dummy.info, tmin=0.0, comment='simulated', nave=1)
-    cov_simulated = mne.Covariance(r_cov * np.eye(n), cov['names'], cov['bads'], cov['projs'], cov['nfree'])
+    cov_simulated = cov.copy()
+    cov_simulated['data'] *= r_cov
 
     return ex_g, evoked_simulated, cov_simulated, p, JG
 
@@ -191,7 +193,7 @@ if __name__ == "__main__":
     grouped_vertidx, n_groups, n_verts = _prepare_leadfield_reduction(src_target, src_origin)
     labels_as_list = src_target
 
-    total_trial = 50
+    total_trial = 10
     n_eigenmodes = 2
     lambda_range = np.asanyarray([1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
     max_iter = 500
@@ -211,11 +213,11 @@ if __name__ == "__main__":
     # 'parstriangularis-rh':        0, 5
 
     aud_patch = np.array([19, 28, 58, 12, 36, 61, 65, 71, 77, 30, 39, 41, 80, 82, 0, 5, 75, 83, 32, 79])
-    corr_thr = 0.6
+    corr_thr = 0.5
     var_thr = 0.95
 
     m_active_vec = [2]
-    m_inactive_vec = [1]
+    m_inactive_vec = [2]
     alpha = -1
 
     tabel_h = np.zeros((len(m_active_vec), len(m_inactive_vec)))
@@ -258,14 +260,13 @@ if __name__ == "__main__":
                     print('trial: ', k+1)
                     t, n = evoked_simulated.data.T.shape
                     ROIs = list(range(0, m))
+
                     temp_obj = nlgc_map('simulation', evoked_simulated, forward, cov_simulated, labels_as_list,
                                         order=p, n_eigenmodes=n_eigenmodes, patch_idx=patch_idx, n_segments=n_segments,
                                         lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter,
                                         tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr)
 
-
                     J = temp_obj.get_J_statistics(alpha=0.0001)
-
                     msd_det[k], fls_det[k] = missed_false_detection(JG, J)
                     relaxed_hit_rate[k], relaxed_fls_rate[k] = relaxed_rates(src_target, JG, J, patch_idx)
                     print('################################################################')

@@ -13,6 +13,8 @@ from sklearn.model_selection import TimeSeriesSplit
 from nlgc.opt.e_step import sskf, sskfcv, align_cast, sskf_prediction
 from nlgc.opt.m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
                              compute_cross_ll, compute_Q)
+import matplotlib
+import matplotlib.pyplot as plt
 
 filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
 logging.basicConfig(filename=filename, level=logging.DEBUG)
@@ -288,7 +290,7 @@ class NeuraLVAR:
         a, f, q, r, *rest = self._parameters
         y, a_, a_upper, f_, q_, q_upper, _, r, (_x, x_), m, n, p, use_lapack = self._prep_for_sskf(y, a, f, q, r)
         x_, s, s_, b, s_hat, ll_ = sskf(y, a_, f_, q_, r, xs=(_x, x_), use_lapack=use_lapack)
-        bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index)
+        bias = sample_path_bias(q_upper, a_upper, x_[:, :m], self._zeroed_index, self._n_eigenmodes)
         return bias
 
     def compute_bias_idx(self, y, source):
@@ -422,6 +424,10 @@ class NeuraLVAR:
             assert x_.flags['C_CONTIGUOUS']
         return y, a_, a_upper, f_, q_, q_upper, non_zero_indices, r, xs, m, n, p, use_lapack
 
+    def _plot_ll_curve(self):
+        fig, ax = plt.subplots()
+        ax.plot(self._lls[0])
+        return fig, ax
 
 class NeuraLVARCV(NeuraLVAR):
     """Neural Latent Vector Auto-Regressive model (supports cross-validation)

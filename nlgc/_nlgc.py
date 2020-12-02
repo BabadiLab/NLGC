@@ -320,29 +320,18 @@ class NLGC:
         self._label_vertidx = label_vertidx
         self._debug = debug
 
-    def _plot_ll_curve(self):
-        fig, ax = plt.subplots()
-        for n in range(0, self.n_segments):
-            ll = self.ll_f[n]
-            ax.plot(ll[np.nonzero(ll)])
-
-        return fig, ax
-
     def _plot_reduced_models_convergence(self, max_itr=1):
-        fig, ax = plt.subplots()
-        ax.hist(np.reshape(self.conv_flag / max_itr, (1, self.nx ** 2)), bins='auto')
+        fig, ax = plt.subplots(self.n_segments)
+        for conv_, ax_ in zip(self._conv_flag, ax):
+            ax_.hist(np.reshape(conv_ / max_itr, (1, self.nx ** 2)).T)
 
         return fig, ax
 
     # @LazyProperty
     def avg_debiased_dev(self):
-        # d_ub = np.zeros((self.nx, self.nx))
-        # for i in range(0, self.n_segments):
-        #     d_ub += debias_deviances(self.d_raw[i], self.bias_f[i], self.bias_r[i])
-        # return d_ub/self.n_segments
         debiased_deviances = [debias_deviances(*args) for args in zip(self.d_raw, self.bias_f, self.bias_r)]
         if self.n_segments > 1:
-            return reduce(lambda x, y: x + y, debiased_deviances)
+            return reduce(lambda x, y: x + y, debiased_deviances)/self.n_segments
         else:
             return debiased_deviances[0]
 
@@ -381,14 +370,15 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 
     # whiten the data
     logger.info('Whitening data matrix.')
-    # M = np.dot(whitener, M)
+    M = np.dot(whitener, M)
 
     # Normalization
     M_normalizing_factor = linalg.norm(np.dot(M, M.T) / M.shape[1], ord='fro')
     G_normalizing_factor = np.sqrt(np.sum(G ** 2, axis=0))
     G /= G_normalizing_factor
     # G *= np.sqrt(M_normalizing_factor)
-    r = noise_cov.data[0, 0]
+    M /= np.sqrt(M_normalizing_factor)
+    r = 1/M_normalizing_factor
 
     if len(patch_idx) == 0:
         raise ValueError("Length of patch_idx should not be zero")
@@ -417,8 +407,8 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     conv_flag = np.zeros((n_segments, len_patch_idx, len_patch_idx))
     models = []
 
-    ipdb.set_trace()
     for n in range(0, n_segments):
+        print('Segment: ', n + 1)
         d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
             _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
                            ROIs=ROIs,
@@ -437,8 +427,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     return nlgc_obj
 
 
-#
-#
 # def _nlgc_map_opt(name, M, ex_G, r, order, self_history, n_eigenmodes=2, ROIs=[], n_segments=1, alpha=0, beta=0,
 #                   lambda_range=None, max_iter=500, max_cyclic_iter=5, tol=1e-5, sparsity_factor=0.0,
 #                   cv=5, label_names=None, label_vertidx=None, use_lapack=True, use_es=True, var_thr=1.0):

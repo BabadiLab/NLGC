@@ -9,7 +9,7 @@ from scipy import linalg
 from .opt.m_step import calculate_ss
 
 
-def sample_path_bias(q, a, x_bar, zeroed_index):
+def sample_path_bias(q, a, x_bar, zeroed_index, n_eigenmodes):
     """Computes the bias in the deviance
 
     Parameters
@@ -45,13 +45,27 @@ def sample_path_bias(q, a, x_bar, zeroed_index):
         # hessian of log - likelihood
         ldotdot = -cx.T.dot(cx) / qd[idx_src]
 
-        if zeroed_index is not None:
-            x_index, y_index = zeroed_index
-            if idx_src in x_index:
-                removed_idx = list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])
-                ldot = np.delete(ldot, removed_idx)
-                ldotdot = np.delete(ldotdot, removed_idx, axis=0)
-                ldotdot = np.delete(ldotdot, removed_idx, axis=1)
+        # if zeroed_index is not None:
+        #     x_index, y_index = zeroed_index
+        #     if idx_src in x_index:
+        #         removed_idx = list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src])
+        #         ldot = np.delete(ldot, removed_idx)
+        #         ldotdot = np.delete(ldotdot, removed_idx, axis=0)
+        #         ldotdot = np.delete(ldotdot, removed_idx, axis=1)
+
+        # FIX removing cross-talk components (that forced to be zero)
+        for l in range(0, dxm, n_eigenmodes):
+            for u in range(n_eigenmodes):
+                for v in range(n_eigenmodes):
+                    if v != u and idx_src == l + v:
+                        removed_idx = list(range(l + u, dtot, dxm))
+                        if zeroed_index is not None:
+                            x_index, y_index = zeroed_index
+                            if idx_src in x_index:
+                                removed_idx.extend(list(np.asanyarray(y_index)[np.asanyarray(x_index) == idx_src]))
+                        ldot = np.delete(ldot, removed_idx)
+                        ldotdot = np.delete(ldotdot, removed_idx, axis=0)
+                        ldotdot = np.delete(ldotdot, removed_idx, axis=1)
 
         bias += ldot.dot(np.linalg.solve(ldotdot, ldot))
     return bias
