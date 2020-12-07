@@ -68,7 +68,7 @@ class NLGC:
             return debiased_deviances[0]
 
     def get_J_statistics(self, alpha=0.1):
-        return fdr_control(self.avg_debiased_dev, self.p * self.n_eigenmodes, alpha)
+        return fdr_control(self.avg_debiased_dev, self.p * (self.n_eigenmodes**2), alpha)
 
     def pickle_as(self, filename):
         if filename.endswith('.pkl') or filename.endswith('.pickled') or filename.endswith('.pickle'):
