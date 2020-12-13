@@ -115,38 +115,39 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         raise ValueError("Length of patch_idx should not be zero")
 
     n, _ = G.shape
-    ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
-    for idx, this_patch in enumerate(patch_idx):
-        ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = \
-            G[:, this_patch * n_eigenmodes: (this_patch + 1) * n_eigenmodes]
-    ROIs = list(range(len(patch_idx)))
+    # ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
+    # for idx, this_patch in enumerate(patch_idx):
+    #     ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = \
+    #         G[:, this_patch * n_eigenmodes: (this_patch + 1) * n_eigenmodes]
+    # ROIs = list(range(len(patch_idx)))
 
-    n, nnx = ex_G.shape
-    len_patch_idx = nnx // n_eigenmodes
+    # n, nnx = ex_G.shape
+    n, nnx = G.shape
+    nx = nnx // n_eigenmodes
     _, t = M.shape
     tt = t // n_segments
 
-    d_raw = np.zeros((n_segments, len_patch_idx, len_patch_idx))
-    bias_r = np.zeros((n_segments, len_patch_idx, len_patch_idx))
+    d_raw = np.zeros((n_segments, nx, nx))
+    bias_r = np.zeros((n_segments, nx, nx))
     bias_f = np.zeros((n_segments, 1))
-    conv_flag = np.zeros((n_segments, len_patch_idx, len_patch_idx))
+    conv_flag = np.zeros((n_segments, nx, nx))
     models = []
 
-    for n in range(0, n_segments):
-        print('Segment: ', n + 1)
+    for n_ in range(0, n_segments):
+        logger.info('Segment: ', n_ + 1)
         d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
-            _gc_extraction(M[:, n * tt: (n + 1) * tt], ex_G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
-                           ROIs=ROIs,
+            _gc_extraction(M[:, n_ * tt: (n_ + 1) * tt], G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
+                           ROIs=patch_idx,
                            alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
                            max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
                            use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
-        d_raw[n] = d_raw_
-        bias_r[n] = bias_r_
-        bias_f[n] = bias_f_
+        d_raw[n_] = d_raw_
+        bias_r[n_] = bias_r_
+        bias_f[n_] = bias_f_
         models.append(model_f)
-        conv_flag[n] = conv_flag_
+        conv_flag[n_] = conv_flag_
 
-    nlgc_obj = NLGC(name, len_patch_idx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
+    nlgc_obj = NLGC(name, nx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
                     conv_flag, label_names, label_vertidx)
 
     return nlgc_obj
@@ -221,8 +222,8 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
         sorted_pow_ratio /= sorted_pow_ratio[-1]
         idx = ((sorted_pow_ratio > var_thr) != 0).argmax()
         ROIs = sorted_idx[:idx + 1]
-    else:
-        ROIs = list(range(m // n_eigenmodes))
+    # else:
+    #     ROIs = list(range(m // n_eigenmodes))
 
     links_to_check = []
     for i, j in itertools.product(ROIs, repeat=2):
