@@ -49,3 +49,77 @@ def visualize_connectivity(con, label_names, n_eigenmodes, ax=None, title=None, 
     ax.set_title(title)
 
     return im, cbar
+
+
+def visualize_connectome(adjacency_matrix, src, subject, subjects_dir, edge_threshold=None, edge_cmap='hot',
+        symmetric_cmap=True, linewidth=6.0, node_size=3.0, colorbar=True, colorbar_height=0.5, colorbar_fontsize=25,
+        title=None, title_fontsize=25,):
+    """
+    Insert a 3d plot of a connectome into an HTML page using `nilearn.plotting.view_connectome()`
+
+    Parameters
+    ----------
+    adjacency_matrix : ndarray, shape=(n_nodes, n_nodes)
+        the weights of the edges.
+    src : mne.SourceSpaces | mne.Forward
+        the source space providing the nodes for the edges.
+    subject : str
+        subject identifier.
+    subjects_dir : str
+        mri directory
+    node_coords : ndarray, shape=(n_nodes, 3)
+        the coordinates of the nodes in MNI space.
+    edge_threshold : str, number or None, optional (default=None)
+        If None, no thresholding.
+        If it is a number only connections of amplitude greater
+        than threshold will be shown.
+        If it is a string it must finish with a percent sign,
+        e.g. "25.3%", and only connections of amplitude above the
+        given percentile will be shown.
+    edge_cmap : str or matplotlib colormap, optional
+    symmetric_cmap : bool, optional (default=True)
+        Make colormap symmetric (ranging from -vmax to vmax).
+    linewidth : float, optional (default=6.)
+        Width of the lines that show connections.
+    node_size : float, optional (default=3.)
+        Size of the markers showing the seeds in pixels.
+    colorbar : bool, optional (default=True)
+        add a colorbar
+    colorbar_height : float, optional (default=.5)
+        height of the colorbar, relative to the figure height
+    colorbar_fontsize : int, optional (default=25)
+        fontsize of the colorbar tick labels
+    title : str, optional (default=None)
+        title for the plot
+    title_fontsize : int, optional (default=25)
+        fontsize of the title
+
+    Returns
+    -------
+    ConnectomeView : plot of the connectome.
+    It can be saved as an html page or rendered (transparently) by the
+    Jupyter notebook. Useful methods are :
+
+    - 'resize' to resize the plot displayed in a Jupyter notebook
+    - 'save_as_html' to save the plot to a file
+    - 'open_in_browser' to save the plot and open it in a web browser.
+    """
+    import mne
+    from nilearn import plotting
+    if isinstance(src, mne.Forward):
+        src = src['src']
+
+    vertnos = []
+    hemis = []
+    for i, ss in enumerate(src):
+        vertnos.append(ss['vertno'])
+        hemis.append(i * np.ones_like(ss['vertno']))
+    vertnos = np.concatenate(vertnos)
+    hemis = np.concatenate(hemis)
+    node_coords = mne.vertex_to_mni(vertnos, hemis, subject, subjects_dir)
+
+    c = plotting.view_connectome(adjacency_matrix, node_coords, edge_threshold=edge_threshold, edge_cmap=edge_cmap,
+                                 symmetric_cmap=symmetric_cmap, linewidth=linewidth, node_size=node_size,
+                                 colorbar=colorbar, colorbar_height=colorbar_height, colorbar_fontsize=colorbar_fontsize,
+                                 title=title, title_fontsize=title_fontsize,)
+    return c
