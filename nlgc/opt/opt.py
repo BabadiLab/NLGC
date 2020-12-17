@@ -596,7 +596,10 @@ class NeuraLVARCV(NeuraLVAR):
         self.es_path = compute_es_criterion(pred_mat)
         for shm in (shm_y, shm_f, shm_r, shm_c, shm_p):
             shm.close()
-            shm.unlink()
+            try:
+                shm.unlink()
+            except:
+                print('Unlink shared-memory issue.')
 
         # Find best mu
         # If Estimation stability criterion is used we need cv_mat[0] and pred_mat

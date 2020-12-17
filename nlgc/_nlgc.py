@@ -250,7 +250,10 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
     args = (r, lambda_f, a_f, q_f, p, p1, n_eigenmodes, use_lapack)  # can be passed directly
 
     # Parallel
-    n_jobs = min(cpu_count(), len(links_to_check))
+    if len(links_to_check) == 0:
+        n_jobs = 1
+    else:
+        n_jobs = min(cpu_count(), len(links_to_check))
     Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
                                                                                **kwargs) for link in links_to_check)
     # # serial
@@ -261,7 +264,10 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
     conv_flag = np.reshape(shared_conv_flag, dev_raw.shape).copy()
     for shm in (shm_conv_flag, shm_bias_r, shm_f, shm_ll_r, shm_y):
         shm.close()
-        shm.unlink()
+        try:
+            shm.unlink()
+        except:
+            print('Unlink shared-memory issue.')
 
     indices = tuple(z for z in zip(*links_to_check))
     dev_raw[indices] = 2 * model_f.ll
