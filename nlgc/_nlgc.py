@@ -252,6 +252,7 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
     # Parallel
     if len(links_to_check) == 0:
         n_jobs = 1
+        bias_f = 0
     else:
         n_jobs = min(cpu_count(), len(links_to_check))
     Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
@@ -269,9 +270,10 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
         except:
             print('Unlink shared-memory issue.')
 
-    indices = tuple(z for z in zip(*links_to_check))
-    dev_raw[indices] = 2 * model_f.ll
-    dev_raw[indices] -= 2 * ll_r[indices]
+    if len(links_to_check) != 0:
+        indices = tuple(z for z in zip(*links_to_check))
+        dev_raw[indices] = 2 * model_f.ll
+        dev_raw[indices] -= 2 * ll_r[indices]
 
     # # Old log ratio implementation
     # dev_raw_[j, i] = sum(map(lambda x: np.log(model_r._parameters[2][x, x]) - np.log(model_f._parameters[2][x, x]),
