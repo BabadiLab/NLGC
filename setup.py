@@ -15,7 +15,6 @@ setup(
         'scikit-learn',
         'numba',
         'mne',
-        'ipdb'
     ],
 
     # metadata for upload to PyPI
