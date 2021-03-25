@@ -125,7 +125,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     bias_f = np.zeros((n_segments, 1))
     conv_flag = np.zeros((n_segments, nx, nx))
 
-    models =[]
+    models = []
 
     for this_segment in range(0, n_segments):
         logger.info('Segment: ', this_segment + 1)
@@ -151,7 +151,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
 def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0, beta=0,
         lambda_range=None, max_iter=500, max_cyclic_iter=3,
         tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True):
-    logger = logging.getLogger(__name__)
     n, m = f.shape
     nx = m // n_eigenmodes
 
@@ -294,7 +293,6 @@ def _learn_reduced_model(i, j, y, f, r, lambda_f, a, q, n, p, p1, n_eigenmodes, 
 
 def _learn_reduced_model_parallel(link_index, info_y, info_f, info_bias_r, info_ll_r, info_conv_flag, r, lambda_f, a, q,
         p, p1, n_eigenmodes, use_lapack, alpha, beta, **kwargs):
-    logger = logging.getLogger(__name__)
     try:
         y, shm_y = link_share_memory(info_y)
         f, shm_f = link_share_memory(info_f)
