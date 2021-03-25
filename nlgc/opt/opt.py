@@ -40,6 +40,8 @@ class NeuraLVAR:
     lambda_ = None
     _zeroed_index = None
     restriction = None
+    aic = None
+    bic = None
 
     def __init__(self, order, self_history=None, n_eigenmodes=None, copy=True, standardize=False, normalize=False,
             use_lapack=True):
@@ -340,6 +342,12 @@ class NeuraLVAR:
         self._lls = lls
         self.ll = lls[0][-1]
         self.lambda_ = lambda2
+
+        _, t = y.shape
+        df = (abs(a) > 1e-15).sum()
+        self.aic = (2*df - 2*self.ll) / t
+        self.bic = (np.log(t)*df - 2*self.ll) / t
+
         return self
 
     @staticmethod
@@ -594,12 +602,15 @@ class NeuraLVARCV(NeuraLVAR):
         pred_mat[:] = np.reshape(shared_pred_mat, pred_mat.shape)
         self.mse_path = cv_mat
         self.es_path = compute_es_criterion(pred_mat)
+
+        logger = logging.getLogger(__name__)
+
         for shm in (shm_y, shm_f, shm_r, shm_c, shm_p):
             shm.close()
             try:
                 shm.unlink()
             except:
-                print('Unlink shared-memory issue.')
+                logger.info(f"Unlink shared-memory issue!")
 
         # Find best mu
         # If Estimation stability criterion is used we need cv_mat[0] and pred_mat
@@ -624,6 +635,13 @@ class NeuraLVARCV(NeuraLVAR):
         self._lls = lls
         self.ll = lls[0][-1]
         self.lambda_ = best_lambda
+
+        _, t = y.shape
+        df = (abs(a) > 1e-15).sum()
+        self.aic = (2*df - 2*self.ll) / t
+        self.bic = (np.log(t)*df - 2*self.ll) / t
+
+        return self
 
 
 def create_shared_mem(arr):

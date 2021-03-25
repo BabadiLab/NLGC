@@ -34,7 +34,7 @@ _default_lambda_range = np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3,
 
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
-                 ll_f, aic, bic, model_f, conv_flag, label_names, label_vertidx, debug=None):
+                 model_f, conv_flag, label_names, label_vertidx, debug=None):
 
         self.subject = subject
         self.nx = nx
@@ -46,9 +46,6 @@ class NLGC:
         self.d_raw = d_raw
         self.bias_f = bias_f
         self.bias_r = bias_r
-        self.ll_f = ll_f
-        self.aic = aic
-        self.bic = bic
         self._model_f = model_f
         self._conv_flag = conv_flag
         self._labels = label_names
@@ -118,13 +115,6 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         raise ValueError("Length of patch_idx should not be zero")
 
     n, _ = G.shape
-    # ex_G = np.zeros((n, len(patch_idx) * n_eigenmodes))
-    # for idx, this_patch in enumerate(patch_idx):
-    #     ex_G[:, idx * n_eigenmodes: (idx + 1) * n_eigenmodes] = \
-    #         G[:, this_patch * n_eigenmodes: (this_patch + 1) * n_eigenmodes]
-    # ROIs = list(range(len(patch_idx)))
-
-    # n, nnx = ex_G.shape
     n, nnx = G.shape
     nx = nnx // n_eigenmodes
     _, t = M.shape
@@ -135,34 +125,24 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     bias_f = np.zeros((n_segments, 1))
     conv_flag = np.zeros((n_segments, nx, nx))
 
-    models, ll_f, aic, bic = [], [], [], []   # each entry of these lists shows the value for the corresponding segment
+    models =[]
 
-    for n_ in range(0, n_segments):
-        logger.info('Segment: ', n_ + 1)
+    for this_segment in range(0, n_segments):
+        logger.info('Segment: ', this_segment + 1)
         d_raw_, bias_r_, bias_f_, model_f, conv_flag_ = \
-            _gc_extraction(M[:, n_ * tt: (n_ + 1) * tt], G, r, p=order, p1=self_history, n_eigenmodes=n_eigenmodes,
+            _gc_extraction(M[:, this_segment * tt: (this_segment + 1) * tt], G, r, p=order, p1=self_history,
+                           n_eigenmodes=n_eigenmodes,
                            ROIs=patch_idx,
                            alpha=alpha, beta=beta, cv=cv, lambda_range=lambda_range, max_iter=max_iter,
                            max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor,
                            use_lapack=use_lapack, use_es=use_es, var_thr=var_thr)
-        d_raw[n_] = d_raw_
-        bias_r[n_] = bias_r_
-        bias_f[n_] = bias_f_
+        d_raw[this_segment] = d_raw_
+        bias_r[this_segment] = bias_r_
+        bias_f[this_segment] = bias_f_
         models.append(model_f)
-        conv_flag[n_] = conv_flag_
+        conv_flag[this_segment] = conv_flag_
 
-        # # AIC/BIC criterion calculation
-        df = 0
-        for p in range(order):
-            df += np.sum(abs(model_f._parameters[0][p]) > 1e-15)    # df = num of non-zero coefficients (for LASSO)
-        df /= tt  # normalize by total num of samples
-
-        ll_f_temp = model_f.compute_ll_(M[:, n_ * tt: (n_ + 1) * tt]) / tt  # normalized log-likelihood
-        aic.append(2 * df - 2 * ll_f_temp)
-        bic.append(df * np.log(tt) - 2 * ll_f_temp)
-        ll_f.append(ll_f_temp)
-
-    nlgc_obj = NLGC(name, nx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, ll_f, aic, bic, models,
+    nlgc_obj = NLGC(name, nx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
                     conv_flag, label_names, label_vertidx)
 
     return nlgc_obj
@@ -237,8 +217,6 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
         sorted_pow_ratio /= sorted_pow_ratio[-1]
         idx = ((sorted_pow_ratio > var_thr) != 0).argmax()
         ROIs = sorted_idx[:idx + 1]
-    # else:
-    #     ROIs = list(range(m // n_eigenmodes))
 
     links_to_check = []
     for i, j in itertools.product(ROIs, repeat=2):
@@ -266,26 +244,24 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
 
     # Parallel
     if len(links_to_check) == 0:
-        n_jobs = 1
         bias_f = 0
     else:
         n_jobs = min(cpu_count(), len(links_to_check))
-    Parallel(n_jobs=n_jobs, verbose=10)(delayed(_learn_reduced_model_parallel)(link, *(shared_args + args),
-                                                                               **kwargs) for link in links_to_check)
-    # # serial
-    # [_learn_reduced_model_parallel(link, *(shared_args + args), ** kwargs) for link in links_to_check]
+        Parallel(n_jobs=n_jobs, verbose=10)\
+            (delayed(_learn_reduced_model_parallel)(link, *(shared_args + args), **kwargs) for link in links_to_check)
+        # # serial
+        # [_learn_reduced_model_parallel(link, *(shared_args + args), ** kwargs) for link in links_to_check]
 
-    ll_r = np.reshape(shared_ll_r, dev_raw.shape).copy()
-    bias_r = np.reshape(shared_bias_r, dev_raw.shape).copy()
-    conv_flag = np.reshape(shared_conv_flag, dev_raw.shape).copy()
-    for shm in (shm_conv_flag, shm_bias_r, shm_f, shm_ll_r, shm_y):
-        shm.close()
-        try:
-            shm.unlink()
-        except:
-            print('Unlink shared-memory issue.')
+        ll_r = np.reshape(shared_ll_r, dev_raw.shape).copy()
+        bias_r = np.reshape(shared_bias_r, dev_raw.shape).copy()
+        conv_flag = np.reshape(shared_conv_flag, dev_raw.shape).copy()
+        for shm in (shm_conv_flag, shm_bias_r, shm_f, shm_ll_r, shm_y):
+            shm.close()
+            try:
+                shm.unlink()
+            except:
+                logger.info(f"Unlink shared-memory issue!")
 
-    if len(links_to_check) != 0:
         indices = tuple(z for z in zip(*links_to_check))
         dev_raw[indices] = 2 * model_f.ll
         dev_raw[indices] -= 2 * ll_r[indices]
