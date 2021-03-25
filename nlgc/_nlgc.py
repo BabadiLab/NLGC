@@ -34,7 +34,7 @@ _default_lambda_range = np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3,
 
 class NLGC:
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
-            model_f, conv_flag, label_names, label_vertidx, debug=None):
+                 ll_f, aic, bic, model_f, conv_flag, label_names, label_vertidx, debug=None):
 
         self.subject = subject
         self.nx = nx
@@ -46,6 +46,9 @@ class NLGC:
         self.d_raw = d_raw
         self.bias_f = bias_f
         self.bias_r = bias_r
+        self.ll_f = ll_f
+        self.aic = aic
+        self.bic = bic
         self._model_f = model_f
         self._conv_flag = conv_flag
         self._labels = label_names
@@ -131,7 +134,8 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
     bias_r = np.zeros((n_segments, nx, nx))
     bias_f = np.zeros((n_segments, 1))
     conv_flag = np.zeros((n_segments, nx, nx))
-    models = []
+
+    models, ll_f, aic, bic = [], [], [], []   # each entry of these lists shows the value for the corresponding segment
 
     for n_ in range(0, n_segments):
         logger.info('Segment: ', n_ + 1)
@@ -147,7 +151,18 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         models.append(model_f)
         conv_flag[n_] = conv_flag_
 
-    nlgc_obj = NLGC(name, nx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, models,
+        # # AIC/BIC criterion calculation
+        df = 0
+        for p in range(order):
+            df += np.sum(abs(model_f._parameters[0][p]) > 1e-15)    # df = num of non-zero coefficients (for LASSO)
+        df /= tt  # normalize by total num of samples
+
+        ll_f_temp = model_f.compute_ll(M[:, n_ * tt: (n_ + 1) * tt]) / tt  # normalized log-likelihood
+        aic.append(2 * df - 2 * ll_f_temp)
+        bic.append(df * np.log(tt) - 2 * ll_f_temp)
+        ll_f.append(ll_f_temp)
+
+    nlgc_obj = NLGC(name, nx, n, t, order, n_eigenmodes, n_segments, d_raw, bias_f, bias_r, ll_f, aic, bic, models,
                     conv_flag, label_names, label_vertidx)
 
     return nlgc_obj
