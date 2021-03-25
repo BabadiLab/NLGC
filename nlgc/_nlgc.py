@@ -157,7 +157,7 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
             df += np.sum(abs(model_f._parameters[0][p]) > 1e-15)    # df = num of non-zero coefficients (for LASSO)
         df /= tt  # normalize by total num of samples
 
-        ll_f_temp = model_f.compute_ll(M[:, n_ * tt: (n_ + 1) * tt]) / tt  # normalized log-likelihood
+        ll_f_temp = model_f.compute_ll_(M[:, n_ * tt: (n_ + 1) * tt]) / tt  # normalized log-likelihood
         aic.append(2 * df - 2 * ll_f_temp)
         bic.append(df * np.log(tt) - 2 * ll_f_temp)
         ll_f.append(ll_f_temp)
