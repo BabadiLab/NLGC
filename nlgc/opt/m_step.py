@@ -1,4 +1,3 @@
-import ipdb
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import linalg
@@ -469,8 +468,6 @@ def test_solve_for_a_and_q(t=1000):
                                    zeroed_index=[(i, i), (j, j + 3)], update_only_target=True)
         q__ = solve_for_q(q__, s3, s1, s2, a__, lambda2=0.1)
 
-    ipdb.set_trace()
-
     import itertools
     for i, j in itertools.product((0,1,2), repeat=2):
         if i == j:
@@ -483,4 +480,3 @@ def test_solve_for_a_and_q(t=1000):
                                        zeroed_index=[(i,i), (j, j+3)])
             q__ = solve_for_q(q__, s3, s1, s2, a__, lambda2=0.1)
         warnings.filterwarnings('ignore')
-        ipdb.set_trace()

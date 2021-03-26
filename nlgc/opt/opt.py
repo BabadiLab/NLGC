@@ -1,7 +1,6 @@
 from itertools import product
 from multiprocessing import shared_memory, current_process
 
-import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -11,12 +10,14 @@ from joblib import Parallel, delayed
 from sklearn import preprocessing
 from sklearn.model_selection import TimeSeriesSplit
 
+from mne.utils import logger
+
 from .e_step import sskf, sskfcv, align_cast, sskf_prediction
 from .m_step import (calculate_ss, solve_for_a, solve_for_q, compute_ll,
                      compute_cross_ll, compute_Q)
 
-filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
-logging.basicConfig(filename=filename, level=logging.DEBUG)
+# filename = os.path.realpath(os.path.join(__file__, '..', '..', "debug.log"))
+# logging.basicConfig(filename=filename, level=logging.DEBUG)
 
 
 class NeuraLVAR:
@@ -340,7 +341,14 @@ class NeuraLVAR:
         self._lls = lls
         self.ll = lls[0][-1]
         self.lambda_ = lambda2
-        return self
+
+    def information_criterion(self, type='akike'):
+        if type not in ['akike', 'bayesian']:
+            raise ValueError("type needs to be either 'akike' or 'bayesian'")
+        df = (abs(self._parameters[0]) > 1e-15).sum()
+        t = self._parameters[4].shape[0]
+        mul = 2 if type == 'akike' else np.log(t)
+        return (mul * df - 2*self.ll) / t
 
     @staticmethod
     def _ravel_a(a):
@@ -483,7 +491,6 @@ class NeuraLVARCV(NeuraLVAR):
         val
 
         """
-        logger = logging.getLogger(__name__)
         logger.debug(f"{current_process().name} working on {split}th split")
         try:
             y, shm_y = link_share_memory(info_y)
@@ -594,9 +601,13 @@ class NeuraLVARCV(NeuraLVAR):
         pred_mat[:] = np.reshape(shared_pred_mat, pred_mat.shape)
         self.mse_path = cv_mat
         self.es_path = compute_es_criterion(pred_mat)
+
         for shm in (shm_y, shm_f, shm_r, shm_c, shm_p):
             shm.close()
-            shm.unlink()
+            try:
+                shm.unlink()
+            except:
+                logger.info(f"Unlink shared-memory issue!")
 
         # Find best mu
         # If Estimation stability criterion is used we need cv_mat[0] and pred_mat
@@ -621,6 +632,13 @@ class NeuraLVARCV(NeuraLVAR):
         self._lls = lls
         self.ll = lls[0][-1]
         self.lambda_ = best_lambda
+
+        _, t = y.shape
+        df = (abs(a) > 1e-15).sum()
+        self.aic = (2*df - 2*self.ll) / t
+        self.bic = (np.log(t)*df - 2*self.ll) / t
+
+        return self
 
 
 def create_shared_mem(arr):
