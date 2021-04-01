@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='nlgc',
-    version='0.3',
+    version='0.3.1',
     description='Latent Causal inference for M/EEG data',
     author='Behrad Soleimani',
     packages=find_packages(),
