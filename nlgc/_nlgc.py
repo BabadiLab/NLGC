@@ -304,7 +304,7 @@ def _learn_reduced_model_parallel(link_index, info_y, info_f, info_bias_r, info_
         raise e
 
     n = f.shape[0]
-    i, j = link_index
+    j, i = link_index
     logger.debug(f"{current_process().name} working on {i, j}th link")
     ll, bias, flag = _learn_reduced_model(i, j, y, f, r, lambda_f, a, q, n, p, p1, n_eigenmodes, use_lapack,
                                           alpha, beta, **kwargs)
