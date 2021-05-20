@@ -612,8 +612,11 @@ class NeuraLVARCV(NeuraLVAR):
         # Find best mu
         # If Estimation stability criterion is used we need cv_mat[0] and pred_mat
         # else we just use $\lambda * ||A||_1$ as the metric.
+
         if use_es:
-            index = self.mse_path[0].mean(axis=0).argmax()
+            # index = self.mse_path[0].mean(axis=0).argmax()
+            # weighted average proportionate to length of the folds
+            index = np.dot(np.arange(len(cvsplits)) + 1, self.mse_path[0]).argmax()
             try:
                 best_lambda = lambda_range[np.nanargmin(self.es_path[:index])]
             except ValueError:
@@ -663,7 +666,7 @@ def initialize_q(y, f, r):
 
 def compute_es_criterion(pred):
     cv_split_repeats = np.arange(pred.shape[0]) + 1
-    cv_split_repeats[:] = 1
+    # cv_split_repeats[:] = 1
     shape = pred.shape[:-2] + (-1,)
     pred.shape = shape
     es = np.empty(pred.shape[1], pred.dtype)
