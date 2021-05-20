@@ -173,15 +173,24 @@ def _gc_extraction(y, f, r, p, p1, n_eigenmodes=2, var_thr=1.0, ROIs=[], alpha=0
     e, u = linalg.eigh(f.dot(f.T))
     temp = u.T.dot(y)
     c = (temp ** 2).sum(axis=1)
-    from scipy import optimize
-    fun = lambda x: (c / (1 + x * e) ** 2).sum() - 1.2 * n * y.shape[1]
-    fprime = lambda x: - 2 * ((c * e) / (1 + x * e) ** 3).sum()
+    # from scipy import optimize
+    # fun = lambda x: (c / (1 + x * e) ** 2).sum() - 1.2 * n * y.shape[1]
+    # fprime = lambda x: - 2 * ((c * e) / (1 + x * e) ** 3).sum()
+    #
+    # if fun(0) > 0:
+    #     q_val = optimize.newton(fun, 1)
+    # else:
+    #     q_val = 0.0001
+    # q_init = q_val * np.eye(m)
 
-    if fun(0) > 0:
-        q_val = optimize.newton(fun, 1)
-    else:
-        q_val = 0.0001
-    q_init = q_val * np.eye(m)
+    # Initialze using the MNE solution
+    (u, s, vh) = np.linalg.svd(f, full_matrices=False)
+    s_inv = 1 / s
+    s_inv[s < s.max() * 1e-15] = 0.
+    my_x = (vh.T * s_inv[None, :]).dot(u.T.dot(y))
+    q_init_vec = np.mean(my_x ** 2, axis=1)
+
+    q_init = np.diag(q_init_vec)
     a_init = None
 
     if len(lambda_range) > 1:
