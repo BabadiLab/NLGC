@@ -33,6 +33,33 @@ _default_lambda_range = np.asanyarray([5e-1, 2e-1, 1e-1, 5e-2, 2e-2, 1e-2, 5e-3,
 
 
 class NLGC:
+    """NLGC object
+
+    Provides a an object including captured connectivity map via NLGC and its related parameters.
+
+    Parameters
+    ----------
+    subject: string
+        subject_id
+    nx: scalar
+        n_sources
+    ny: scalar
+        n_sensors
+    t: scalar
+        n_samples
+    p: scalar
+        VAR model order
+    n_eigenmodes: scalar
+        number of eigenmodes
+    n_segments: scalar
+        number of chunks for non-centrality parameter estimation
+    d_raw: numpy array (n_sources * n_sources)
+        *biased* deviance matrix
+    bias_f: scalar
+        full model bias (scalar)
+    biar_r: numpy array (n_sources * n_sources)
+        reduced model bias matrix, [.]_{i,j} corresponds to link j->i
+    """
     def __init__(self, subject, nx, ny, t, p, n_eigenmodes, n_segments, d_raw, bias_f, bias_r,
                  model_f, conv_flag, label_names, label_vertidx, debug=None):
 
@@ -61,6 +88,9 @@ class NLGC:
 
     @LazyProperty
     def avg_debiased_dev(self):
+        """averaging the calculted deviances across chunks (n_segments)
+
+            """
         debiased_deviances = [debias_deviances(*args) for args in zip(self.d_raw, self.bias_f, self.bias_r)]
         if self.n_segments > 1:
             return reduce(lambda x, y: x + y, debiased_deviances) / self.n_segments
@@ -68,9 +98,21 @@ class NLGC:
             return debiased_deviances[0]
 
     def get_J_statistics(self, alpha=0.1):
+        """calculating J-stat (connectivity map) from deviance matrix
+
+        Parameters
+        ----------
+        alpha : individual-level confidence interval
+            """
         return fdr_control(self.avg_debiased_dev, self.p * (self.n_eigenmodes**2), alpha)
 
     def pickle_as(self, filename):
+        """saving the object as a pickle
+
+        Parameters
+        ----------
+        filename : file name (including directory address)
+            """
         if filename.endswith('.pkl') or filename.endswith('.pickled') or filename.endswith('.pickle'):
             pass
         else:
@@ -87,6 +129,65 @@ def nlgc_map(name, evoked, forward, noise_cov, labels, order, self_history=None,
         patch_idx=[], n_segments=1, loose=0.0, depth=0.0, pca=True, rank=None, lambda_range=None,
         max_iter=500, max_cyclic_iter=3, tol=1e-5, sparsity_factor=0.0, cv=5, use_lapack=True, use_es=True,
         var_thr=1.0):
+    """NLGC connectivity map estimation
+
+    This function estimates the causal connectivity map acroos sources given the MEG measurements, forward model,
+    measurement noise covariance matrix, and a few model-related paramters.
+
+    Parameters
+    ----------
+    name: string
+        subject's name
+    evoked: object
+        MEG recordings in MNE-python evoked format
+    forward: object
+        forward solution
+    noise_cov: object
+        measurement noise covariance matrix
+    labels: object/list
+        forward solution obj, source space obj, or a list of the ROI names in the source space
+    order: scalar
+        VAR model order
+    self_history: scalar
+        removes self_history coefficient in VAR model until the lag order self_history (default = None)
+    n_eigenmodes: scalar
+        numnber of eignemodes
+    alpha: scalar
+        Inv-Gamma(alpha*n/2 - 1, beta*n) prior on Q (state noise covariance matrix)
+    beta: scalar
+        Inv-Gamma(alpha*n/2 - 1, beta*n) prior on Q (state noise covariance matrix)
+    patch_idx: list
+        subset of patch indices to find the connectivity within them (None = whole source space)
+    n_segments: scalar
+        number of segments which divides the MEG recording into equal parts
+    {loose, depth, pca, rank}: scalar/boolean
+        forward model computation parameters, check this for more info:
+        mne.inverse_sparse.mxne_inverse import _prepare_gain
+    lambda_range: numpy array
+        range of the regularization coefficient for cross-validation
+    max_iter: scalar
+        maximum number of iterations for EM-based paramter estimation
+    max_cyclic_iter: scalar
+        maximum number of cyclic iterations to update VAR coefficints (A's) and covariance (q's)
+    tol: scalar
+        tolerance for EM convergence (in terms of relative jump of log-likelihood function)
+    sparsity_factor: scalar
+        check the reduced models where absolute sum of their coefficients are greater than sparsity_factor
+    cv: scalar
+        number of folds used for cross-validation
+    use_es: boolean
+        if True, uses estimation stability for CV metric, otherwise it uses log-likelihood value; check this for
+            more info: https://doi.org/10.1080/10618600.2015.1020159 (ESVC)
+    var_thr: scalar
+        check only the reduced models of sources that represent 'var_thr' of the total power (default = 1 which
+             means using all sources)
+
+
+    Returns
+    -------
+    nlgc_obj : object
+        NLGC object (see NLGC class for more info)
+    """
     _check_reference(evoked)
 
     if not is_fixed_orient(forward):
@@ -407,6 +508,25 @@ def _prepare_label_extraction(labels, src):
 
 
 def assign_labels(labels, src_target, src_origin, thresh=0):
+    """Assign the patch indices of the corresponding labels from origin into target source space
+
+    This function returns the patch indices of the (ROI) labels in the target source space (e.g. 'ico-1') from the
+    origin source space (e.g. 'ico-4')
+
+    Parameters
+    ----------
+    labels:  object
+        labels as the standard MNE-python format
+    src_target: object
+        target source space, e.g. ico-4 (obj)
+    src_origin: object
+        origin source space, e.g. ico-4 (obj)
+
+    Returns
+    -------
+    label_vertidx: list
+        vertix(patch) index
+    """
     label_vertidx_origin = _prepare_label_extraction(labels, src_origin)
     group_vertidx, _, _ = _prepare_leadfield_reduction(src_target, src_origin)
     label_vertidx = []
