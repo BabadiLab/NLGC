@@ -2,7 +2,7 @@
 
 Understanding how the brain processes the sensory information requires the ability to draw causal connections across different cortical areas of the brain. In the study, we propose a statistical framework, called network localized Granger causality (NLGC), to capture causal relationships at the cortical level from magnetoencephalography (MEG) data. As opposed to the conventional methods, so-called the two-stage procedure which in fact source activities need to be estimated first followed by the connectivity analysis given the source estimates, we directly capture the causal links without an intermediate source localization step. Simulation results show that the NLGC outperforms the two-stage procedure both in terms of hit-rate and detecting less spurious interactions. Furthermore, NLGC is sufficiently robust against model mismatches, network size, and low signal-to-noise ratio. Fig. 1 shows an overview of the NLGC pipeline. For more details, check [1] and [2].
 
-|<img src="https://user-images.githubusercontent.com/95252372/150391276-77ccd762-71b7-48c5-9a34-0a5a77110e44.jpg" width="70%" alt=""> | 
+|<img src="https://user-images.githubusercontent.com/95252372/153320252-fe1d1c7f-e882-4c82-a7bb-807b5473840c.jpg" width="70%" alt=""> | 
 |:--:| 
 | Fig 1. NLGC pipeline. In contrast to conventional two-stage procedures, NLGC directly captures the causal interactions without an intermediate source localization step. |
 
@@ -47,7 +47,7 @@ For more details, check the description of 'nlgc_map()'.
 # Results
 
 Fig. 2 illustrates the comparison of NLGC with the two-stage procedures using three well-known source localization techniques: [MNE](https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html), [dSPM](https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html), and [Champagne](https://mne.tools/stable/generated/mne.inverse_sparse.gamma_map.html#mne.inverse_sparse.gamma_map). Panel A shows the captured causal network for one configurations. In Panel B, the ROC curves (hit-rate vs. false alarm) is depicted for NLGC and the other three methods in different scenarios: 1) exact vs. relaxed localization: in the relaxed version, if the link A'->B' is detected and the true link was A->B, we recognize it as a hit if A' and B' belong to the neighboring sources of A and B, respectively. This way, we neglect some errors happend due to the mis-localization. 2) model mis-match vs. no model mis-match: in the no mis-math case, the forward model used to generate the data is the exact same fed to the algorithm. On the other hand, in model mis-match case (which is a typical practical scenario), the forward model utilized in the estimation procedures is a deviated version of the true forward model. Finally, Panel C compares the perfotmace of these frameworks with respect to the signal-to-noise ratio (SNR). Overall, this simulation suggests NLGC can be reliably used instead of the conventional two-stage procedures as it is robust with respect to model mis-match and SNR, as well as network size. For more details, please check [1]. 
-|<img src="https://user-images.githubusercontent.com/95252372/151388321-7c4c13d3-f3fd-4c7e-b9d2-c60114c8c680.jpg" width="90%" alt=""> | 
+|<img src="https://user-images.githubusercontent.com/95252372/153320153-8066de05-66b8-4395-9e65-fdae041c98f7.jpg" width="90%" alt=""> | 
 |:--:| 
 | Fig 2. Comparison of NLGC with the two-stage procedures. |
 
@@ -64,7 +64,7 @@ We keep developing the package over time. Feel free to ask any other functionali
 
 # Term of Use
 
-This python package is a free software under BSD 2-Clause License. Whenever you use this software to produce a publication or talk, please cite the following references.
+This python package is a free software under BSD 3-Clause License. Whenever you use this software to produce a publication or talk, please cite the following references.
 
 
 # References
