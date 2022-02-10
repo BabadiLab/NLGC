@@ -38,3 +38,38 @@ This returns an object which includes connectivity matrix, estimated parameters,
 ```
 J = nlgc_obj.get_J_statistics()
 ```
+For more details, check the description of 'nlgc_map()'.
+
+*Note(1): argumetns of 'nlgc_map()' such as forward model and evoked follow the standard [MNE-experiment](https://eelbrain.readthedocs.io/en/stable/experiment.html) pipeline.
+
+*Note (2): to plot the connectivity map over a brain, one can use [connectome plot](https://nilearn.github.io/modules/generated/nilearn.plotting.plot_connectome.html) (e.g. Fig. 2 panel A, or Fig. 3).
+
+# Results
+
+Fig. 2 illustrates the comparison of NLGC with the two-stage procedures using three well-known source localization techniques: [MNE](https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html), [dSPM](https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html), and [Champagne](https://mne.tools/stable/generated/mne.inverse_sparse.gamma_map.html#mne.inverse_sparse.gamma_map). Panel A shows the captured causal network for one configurations. In Panel B, the ROC curves (hit-rate vs. false alarm) is depicted for NLGC and the other three methods in different scenarios: 1) exact vs. relaxed localization: in the relaxed version, if the link A'->B' is detected and the true link was A->B, we recognize it as a hit if A' and B' belong to the neighboring sources of A and B, respectively. This way, we neglect some errors happend due to the mis-localization. 2) model mis-match vs. no model mis-match: in the no mis-math case, the forward model used to generate the data is the exact same fed to the algorithm. On the other hand, in model mis-match case (which is a typical practical scenario), the forward model utilized in the estimation procedures is a deviated version of the true forward model. Finally, Panel C compares the perfotmace of these frameworks with respect to the signal-to-noise ratio (SNR). Overall, this simulation suggests NLGC can be reliably used instead of the conventional two-stage procedures as it is robust with respect to model mis-match and SNR, as well as network size. For more details, please check [1]. 
+|<img src="https://user-images.githubusercontent.com/95252372/151388321-7c4c13d3-f3fd-4c7e-b9d2-c60114c8c680.jpg" width="90%" alt=""> | 
+|:--:| 
+| Fig 2. Comparison of NLGC with the two-stage procedures. |
+
+Fig. 3 demonstrates the application of NLGC on experimentally recorded data from a tone listening vs. resting state task over a group of younger and older participants. In this figure, frontal -> temporal (red) and temporal -> frontal (green) connections are plotted at the group- (left panel) and individual-level in 0.1-8 Hz frequency band. According to the figure, in tone processing, for both age groups, frontal -> temporal (top-down) interactions have more contribution in the established netwrok while in the resting state, more temoporal -> frontal (bottom-up) connections appear. More details are available in [1].
+
+|<img src="https://user-images.githubusercontent.com/95252372/153009581-ff7962b7-897e-458a-b611-edd8c092cc0c.jpg" width="90%" alt=""> | 
+|:--:| 
+| Fig 3. Delta and Theta band analysis of a tone processing vs. resting-state task for younger and older participants. |
+
+# Contact
+
+We keep developing the package over time. Feel free to ask any other functionality if it is not already implemented and/or report if anything is broken. You can contact the authors under these email addresses: behrad@umd.edu (Behrad Soleimani), pdas6@mgh.harvard.edu (Proloy Das).
+
+
+# Term of Use
+
+This python package is a free software under BSD 2-Clause License. Whenever you use this software to produce a publication or talk, please cite the following references.
+
+
+# References
+
+[1] B. Soleimani, P. Das, I.M. D. Karunathilake, S. E. Kuchinsky, J. Z. Simona and B. Babadi, "[NLGC: Network Localized Granger Causality with Application to MEG Directional Functional Connectivity Analysis](https://www.biorxiv.org/)", ***.
+
+[2] B. Soleimani, P. Das, J. Kulasingham, J. Z. Simon and B. Babadi, "[Granger Causal Inference from Indirect Low-Dimensional Measurements with Application to MEG Functional Connectivity Analysis](https://ieeexplore.ieee.org/abstract/document/9086218)", 2020 54th Annual Conference on Information Sciences and Systems (CISS), 2020, pp. 1-5, doi: 10.1109/CISS48834.2020.1570617418.
+
