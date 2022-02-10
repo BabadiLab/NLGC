@@ -31,9 +31,7 @@ After importing the package, one need to call nlgc_map function with proper argu
 import nlgc
 .
 .
-.
 # reading the data and pre-processing...
-.
 .
 .
 nlgc_obj = nlgc.nlgc_map(subject, evoked, forward, noise_cov, src_target, order=order, n_eigenmodes=n_eigenmodes, patch_idx=patch_idx, n_segments=n_segments, lambda_range=lambda_range, max_iter=max_iter, max_cyclic_iter=max_cyclic_iter, tol=tol, sparsity_factor=sparsity_factor, var_thr=var_thr, cv=5)
