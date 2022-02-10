@@ -1,0 +1,21 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  NLGC: Network Localized Granger Causality with
+  Application to MEG Directional Functional
+  Connectivity Analysis
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Behrad
+    family-names: Soleimani
+    email: behrad@umd.edu
+    affiliation: University of Maryland
+  - given-names: Proloy
+    family-names: Das
+    email: pdas6@mgh.harvard.edu
+    affiliation: Massachusetts General Hospital
