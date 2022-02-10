@@ -14,7 +14,7 @@ Eelbrain ([instructions and installation](https://github.com/christianbrodbeck/E
 
 # Installation
 
-After successfully installing eelbrain, one can install NLGC using 'pip' (or any other convinient methods).
+After successfully installing eelbrain, one can install NLGC package using 'pip' (or any other convinient methods).
 ```
 pip install NLGC
 ```
