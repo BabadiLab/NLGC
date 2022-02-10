@@ -55,7 +55,7 @@ Fig. 2 illustrates the comparison of NLGC with the two-stage procedures using th
 
 Fig. 3 demonstrates the application of NLGC on experimentally recorded data from a tone listening vs. resting state task over a group of younger and older participants. In this figure, frontal -> temporal (red) and temporal -> frontal (green) connections are plotted at the group- (left panel) and individual-level in 0.1-8 Hz frequency band. According to the figure, in tone processing, for both age groups, frontal -> temporal (top-down) interactions have more contribution in the established netwrok while in the resting state, more temoporal -> frontal (bottom-up) connections appear. More details are available in [1].
 
-|<img src="https://user-images.githubusercontent.com/95252372/153009581-ff7962b7-897e-458a-b611-edd8c092cc0c.jpg" width="90%" alt=""> | 
+|<img src="https://user-images.githubusercontent.com/95252372/153009581-ff7962b7-897e-458a-b611-edd8c092cc0c.jpg" width="70%" alt=""> | 
 |:--:| 
 | Fig 3. Delta and Theta band analysis of a tone processing vs. resting-state task for younger and older participants. |
 
