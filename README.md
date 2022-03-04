@@ -71,7 +71,7 @@ This python package is a free software under BSD 3-Clause License. Whenever you 
 
 # References
 
-[1] B. Soleimani, P. Das, I.M. D. Karunathilake, S. E. Kuchinsky, J. Z. Simona and B. Babadi, "[NLGC: Network Localized Granger Causality with Application to MEG Directional Functional Connectivity Analysis](https://www.biorxiv.org/)", ***.
+[1] TBA
 
 [2] B. Soleimani, P. Das, J. Kulasingham, J. Z. Simon and B. Babadi, "[Granger Causal Inference from Indirect Low-Dimensional Measurements with Application to MEG Functional Connectivity Analysis](https://ieeexplore.ieee.org/abstract/document/9086218)", 2020 54th Annual Conference on Information Sciences and Systems (CISS), 2020, pp. 1-5, doi: 10.1109/CISS48834.2020.1570617418.
 
